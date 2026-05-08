@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+
+{% block title %}Статистика кэша цен{% endblock %}
+
+{% block content %}
+<h2><i class="fas fa-database"></i> Статистика кэша цен</h2>
+
+<div class="row mt-4">
+    <div class="col-md-3">
+        <div class="card text-white bg-primary mb-3">
+            <div class="card-body">
+                <h5 class="card-title">Всего активов</h5>
+                <h2 class="card-text">{{ stats.total_entries }}</h2>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-white bg-success mb-3">
+            <div class="card-body">
+                <h5 class="card-title">Актуальные цены</h5>
+                <h2 class="card-text">{{ stats.fresh_entries }}</h2>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-white bg-warning mb-3">
+            <div class="card-body">
+                <h5 class="card-title">Устаревшие</h5>
+                <h2 class="card-text">{{ stats.outdated_entries }}</h2>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-white bg-info mb-3">
+            <div class="card-body">
+                <h5 class="card-title">TTL</h5>
+                <h2 class="card-text">{{ stats.ttl_hours }} ч</h2>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card mt-4">
+    <div class="card-header">
+        <h5><i class="fas fa-chart-line"></i> Информация о кэше</h5>
+    </div>
+    <div class="card-body">
+        <table class="table table-bordered">
+            <tr>
+                <th>Hit rate</th>
+                <td>{{ stats.cache_hit_rate }}</td>
+            </tr>
+            <tr>
+                <th>Всего записей</th>
+                <td>{{ stats.total_entries }}</td>
+            </tr>
+            <tr>
+                <th>Актуальных</th>
+                <td>{{ stats.fresh_entries }}</td>
+            </tr>
+            <tr>
+                <th>Устаревших</th>
+                <td>{{ stats.outdated_entries }}</td>
+            </tr>
+        </table>
+        
+        <div class="mt-3">
+            <a href="{{ url_for('admin_update_prices) }}" class="btn btn-primary">
+                <i class="fas fa-sync-alt"></i> Принудительное обновление
+            </a>
+            <button onclick="clearCache()" class="btn btn-danger">
+                <i class="fas fa-trash"></i> Очистить кэш
+            </button>
+        </div>
+    </div>
+</div>
+
+<div class="card mt-4">
+    <div class="card-header">
+        <h5><i class="fas fa-history"></i> Последние обновления</h5>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-striped">
+                <thead>
+                    <tr>
+                        <th>Тикер</th>
+                        <th>Цена</th>
+                        <th>Валюта</th>
+                        <th>Обновлено</th>
+                        <th>Актуальность</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for entry in recent_updates %}
+                    <tr>
+                        <td><strong>{{ entry.ticker }}</strong></td>
+                        <td>{{ "%.2f"|format(entry.price|float) }}</td>
+                        <td>{{ entry.currency }}</td>
+                        <td>{{ entry.last_update.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                        <td>
+                            {% set age = (now - entry.last_update).total_seconds() / 3600 %}
+                            {% if age < 2 %}
+                                <span class="badge bg-success">Актуально</span>
+                            {% else %}
+                                <span class="badge bg-warning">Устарело ({{ "%.1f"|format(age) }} ч)</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function clearCache() {
+    if (confirm('Вы уверены, что хотите очистить весь кэш цен?')) {
+        fetch('/admin/clear-cache', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        }).then(response => {
+            if (response.ok) {
+                window.location.reload();
+            } else {
+                alert('Ошибка при очистке кэша');
+            }
+        });
+    }
+}
+</script>
+{% endblock %}

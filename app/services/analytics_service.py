@@ -1,17 +1,40 @@
-from app import db
+# app/services/analytics_service.py
+from app.extensions import db
 from app.models.transaction import Transaction
 from app.models.position import Position
 from app.models.historical_price import HistoricalPrice
+from app.services.price_cache_service import price_cache_service
 from datetime import datetime, date
 from decimal import Decimal
-from app.utils.xirr import calculate_xirr
+import logging
+
+logger = logging.getLogger(__name__)
 
 class AnalyticsService:
     
-    @staticmethod
-    def get_portfolio_summary(portfolio_id, current_prices):
-        """Получение сводки по портфелю"""
+    @classmethod
+    def get_portfolio_summary(cls, portfolio_id, use_cache=True):
+        """Получение сводки по портфелю с использованием кэша БД"""
         positions = Position.query.filter_by(portfolio_id=portfolio_id).all()
+        
+        if not positions:
+            return {
+                'total_value': 0,
+                'total_cost': 0,
+                'total_unrealized_pnl': 0,
+                'total_return_pct': 0,
+                'positions': []
+            }
+        
+        # Получаем тикеры для запроса цен
+        tickers = [pos.asset.ticker for pos in positions if pos.asset]
+        
+        # Получаем текущие цены из кэша БД
+        if use_cache:
+            current_prices = price_cache_service.get_current_prices(tickers)
+        else:
+            # Принудительное обновление
+            current_prices = price_cache_service.get_current_prices(tickers, force_update=True)
         
         total_value = Decimal('0')
         total_cost = Decimal('0')
@@ -26,7 +49,9 @@ class AnalyticsService:
             unrealized_pnl_pct = (unrealized_pnl / cost * 100) if cost > 0 else 0
             
             summary.append({
-                'asset': ticker,
+                'asset_id': pos.asset_id,
+                'ticker': ticker,
+                'name': pos.asset.name,
                 'quantity': float(pos.quantity),
                 'avg_price': float(pos.avg_price),
                 'current_price': float(current_price),

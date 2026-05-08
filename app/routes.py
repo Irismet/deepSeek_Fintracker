@@ -3,11 +3,13 @@ from flask import render_template, request, flash, redirect, make_response, url_
 from app.extensions import db
 from app.models.broker import Broker
 from app.models.exchange import Exchange
+from app.models.price_cache import PriceCache
 from app.models.user import User
 from app.models.portfolio import Portfolio
 from app.models.asset import Asset
 from app.models.transaction import Transaction
 
+from app.services.price_cache_service import price_cache_service
 from app.services.pricing_service import PricingService
 from app.services.analytics_service import AnalyticsService
 from functools import wraps
@@ -193,36 +195,29 @@ def register_routes(app):
         current_user = get_current_user()
         portfolio = Portfolio.query.filter_by(id=portfolio_id, user_id=current_user.id).first_or_404()
         
-        # Получаем аналитику
-        positions = portfolio.positions.all()
-        tickers = [p.asset.ticker for p in positions if p.asset]
-        current_prices = PricingService.get_current_prices(tickers)
-        summary = AnalyticsService.get_portfolio_summary(portfolio_id, current_prices)
+        # Используем кэш из БД
+        from app.services.analytics_service import AnalyticsService
+        summary = AnalyticsService.get_portfolio_summary(portfolio_id, use_cache=True)
         
+        # Получаем информацию по позициям
+        positions = portfolio.positions.all()
         portfolio_data = portfolio.to_dict()
         portfolio_data.update(summary)
-        portfolio_data['positions'] = []
+        portfolio_data['positions'] = summary['positions']
         
-        for pos in positions:
-            pos_dict = pos.to_dict()
-            ticker = pos.asset.ticker
-            current_price = current_prices.get(ticker, 0)
-            current_value = float(pos.quantity) * current_price
-            cost = float(pos.quantity) * float(pos.avg_price)
-            unrealized_pnl = current_value - cost
-            unrealized_pnl_pct = (unrealized_pnl / cost * 100) if cost > 0 else 0
-            
-            pos_dict.update({
-                'current_price': current_price,
-                'current_value': current_value,
-                'unrealized_pnl': unrealized_pnl,
-                'unrealized_pnl_pct': unrealized_pnl_pct
-            })
-            portfolio_data['positions'].append(pos_dict)
+        # Добавляем информацию о времени последнего обновления цен
+        cache_stats = price_cache_service.get_cache_stats()
+        portfolio_data['last_price_update'] = None
+        
+        if positions:
+            first_ticker = positions[0].asset.ticker
+            cache_entry = PriceCache.query.filter_by(ticker=first_ticker).first()
+            if cache_entry:
+                portfolio_data['last_price_update'] = cache_entry.last_update.strftime('%Y-%m-%d %H:%M:%S')
         
         return render_template('portfolios/detail.html', 
-                             portfolio=portfolio_data, 
-                             current_user=current_user)
+                            portfolio=portfolio_data, 
+                            current_user=current_user)
     
     @app.route('/portfolios/<int:portfolio_id>/edit', methods=['GET', 'POST'])
     @login_required
