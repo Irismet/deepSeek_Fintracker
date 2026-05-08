@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+
+{% block title %}Редактировать актив{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h4><i class="fas fa-edit"></i> Редактировать актив: {{ asset.ticker }}</h4>
+            </div>
+            <div class="card-body">
+                <form method="POST">
+                    <div class="mb-3">
+                        <label for="ticker" class="form-label">Тикер <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="ticker" name="ticker" value="{{ asset.ticker }}" required>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="isin" class="form-label">ISIN код</label>
+                        <input type="text" class="form-control" id="isin" name="isin" 
+                               value="{{ asset.isin or '' }}" maxlength="12">
+                        <div class="form-text">Международный идентификационный код ценной бумаги</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="name" class="form-label">Название <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="name" name="name" value="{{ asset.name }}" required>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="asset_type" class="form-label">Тип актива <span class="text-danger">*</span></label>
+                        <select class="form-select" id="asset_type" name="asset_type" required>
+                            <option value="stock" {% if asset.asset_type == 'stock' %}selected{% endif %}>Акция (Stock)</option>
+                            <option value="etf" {% if asset.asset_type == 'etf' %}selected{% endif %}>ETF</option>
+                            <option value="bond" {% if asset.asset_type == 'bond' %}selected{% endif %}>Облигация (Bond)</option>
+                            <option value="crypto" {% if asset.asset_type == 'crypto' %}selected{% endif %}>Криптовалюта (Crypto)</option>
+                            <option value="cash" {% if asset.asset_type == 'cash' %}selected{% endif %}>Кэш (Cash)</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="currency" class="form-label">Валюта <span class="text-danger">*</span></label>
+                        <select class="form-select" id="currency" name="currency" required>
+                            <option value="USD" {% if asset.currency == 'USD' %}selected{% endif %}>USD - Доллар США</option>
+                            <option value="EUR" {% if asset.currency == 'EUR' %}selected{% endif %}>EUR - Евро</option>
+                            <option value="RUB" {% if asset.currency == 'RUB' %}selected{% endif %}>RUB - Российский рубль</option>
+                            <option value="GBP" {% if asset.currency == 'GBP' %}selected{% endif %}>GBP - Британский фунт</option>
+                            <option value="BTC" {% if asset.currency == 'BTC' %}selected{% endif %}>BTC - Bitcoin</option>
+                        </select>
+                    </div>
+                    
+                    <div class="d-flex justify-content-between">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save"></i> Сохранить
+                        </button>
+                        <a href="{{ url_for('assets_list') }}" class="btn btn-secondary">
+                            <i class="fas fa-times"></i> Отмена
+                        </a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

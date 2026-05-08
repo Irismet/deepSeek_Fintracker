@@ -1,0 +1,128 @@
+<!-- app/templates/analytics/dashboard.html -->
+{% extends "base.html" %}
+
+{% block title %}Аналитика портфеля{% endblock %}
+
+{% block content %}
+<h2><i class="fas fa-chart-pie"></i> Аналитика инвестиций</h2>
+
+{% if portfolios %}
+<div class="row mb-4">
+    <div class="col-md-4">
+        <div class="stat-card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+            <i class="fas fa-chart-line"></i>
+            <h3>${{ "%.2f"|format(total_value) }}</h3>
+            <p>Общая стоимость всех портфелей</p>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h5><i class="fas fa-chart-simple"></i> Сводка по портфелям</h5>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-striped">
+                <thead>
+                    <tr>
+                        <th>Портфель</th>
+                        <th>Стоимость</th>
+                        <th>P&L</th>
+                        <th>Доходность %</th>
+                        <th>Действия</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for portfolio in portfolios %}
+                    <tr>
+                        <td><strong>{{ portfolio.name }}</strong></td>
+                        <td>${{ "%.2f"|format(portfolio.value) }}</td>
+                        <td class="{{ 'profit-positive' if portfolio.pnl >= 0 else 'profit-negative' }}">
+                            ${{ "%.2f"|format(portfolio.pnl) }}
+                        </td>
+                        <td class="{{ 'profit-positive' if portfolio.pnl_pct >= 0 else 'profit-negative' }}">
+                            {{ "%.2f"|format(portfolio.pnl_pct) }}%
+                        </td>
+                        <td>
+                            <a href="{{ url_for('portfolios_detail_html', portfolio_id=portfolio.id) }}" class="btn btn-sm btn-outline-primary">
+                                <i class="fas fa-eye"></i> Детали
+                            </a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- График распределения по портфелям -->
+<div class="card mt-4">
+    <div class="card-header">
+        <h5><i class="fas fa-chart-pie"></i> Распределение по портфелям</h5>
+    </div>
+    <div class="card-body">
+        <div class="chart-container">
+            <canvas id="portfolioChart"></canvas>
+        </div>
+    </div>
+</div>
+
+{% else %}
+<div class="alert alert-info">
+    <i class="fas fa-info-circle"></i> У вас пока нет портфелей для анализа. Создайте первый портфель!
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if portfolios %}
+<script>
+// Создаем график распределения
+const ctx = document.getElementById('portfolioChart').getContext('2d');
+const portfolioNames = {{ portfolios|map(attribute='name')|list|tojson }};
+const portfolioValues = {{ portfolios|map(attribute='value')|list|tojson }};
+
+new Chart(ctx, {
+    type: 'pie',
+    data: {
+        labels: portfolioNames,
+        datasets: [{
+            data: portfolioValues,
+            backgroundColor: [
+                '#667eea',
+                '#764ba2',
+                '#f093fb',
+                '#4facfe',
+                '#11998e',
+                '#38ef7d'
+            ],
+            borderWidth: 2,
+            borderColor: '#fff'
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        plugins: {
+            legend: {
+                position: 'bottom'
+            },
+            tooltip: {
+                callbacks: {
+                    label: function(context) {
+                        const label = context.label || '';
+                        const value = context.raw || 0;
+                        const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                        const percentage = ((value / total) * 100).toFixed(2);
+                        return `${label}: $${value.toFixed(2)} (${percentage}%)`;
+                    }
+                }
+            }
+        }
+    }
+});
+</script>
+{% endif %}
+{% endblock %}

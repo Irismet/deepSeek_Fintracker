@@ -1,0 +1,30 @@
+<!-- app/templates/index.html -->
+{% extends "base.html" %}
+
+{% block title %}Главная{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="jumbotron bg-light p-5 rounded-3 mb-4">
+            <h1 class="display-4">Инвестиционный трекер</h1>
+            <p class="lead">Управляйте своими инвестициями, отслеживайте доходность и анализируйте портфель</p>
+            {% if not current_user %}
+            <hr class="my-4">
+            <p>Начните отслеживать свои инвестиции прямо сейчас!</p>
+            <a class="btn btn-primary btn-lg" href="{{ url_for('auth.register') }}" role="button">
+                <i class="fas fa-user-plus"></i> Зарегистрироваться
+            </a>
+            <a class="btn btn-outline-primary btn-lg" href="{{ url_for('auth.login') }}" role="button">
+                <i class="fas fa-sign-in-alt"></i> Войти
+            </a>
+            {% else %}
+            <hr class="my-4">
+            <a class="btn btn-primary btn-lg" href="{{ url_for('portfolios.create') }}" role="button">
+                <i class="fas fa-plus"></i> Создать портфель
+            </a>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

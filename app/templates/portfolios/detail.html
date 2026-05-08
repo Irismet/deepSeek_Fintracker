@@ -1,0 +1,166 @@
+<!-- app/templates/portfolios/detail.html -->
+{% extends "base.html" %}
+
+{% block title %}{{ portfolio.name }}{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="d-flex justify-content-between align-items-center">
+            <h2><i class="fas fa-chart-line"></i> {{ portfolio.name }}</h2>
+            <div>
+                <a href="{{ url_for('transactions_create_html', portfolio_id=portfolio.id) }}" class="btn btn-success">
+                    <i class="fas fa-plus"></i> Добавить сделку
+                </a>
+                <a href="{{ url_for('portfolios_list') }}" class="btn btn-secondary">
+                    <i class="fas fa-arrow-left"></i> Назад
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Статистика -->
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="stat-card">
+            <i class="fas fa-chart-line"></i>
+            <h3>${{ "%.2f"|format(portfolio.total_value|float) }}</h3>
+            <p>Общая стоимость</p>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="stat-card" style="background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);">
+            <i class="fas fa-dollar-sign"></i>
+            <h3>${{ "%.2f"|format(portfolio.total_cost|float) }}</h3>
+            <p>Вложено всего</p>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="stat-card" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
+            <i class="fas fa-trend-up"></i>
+            <h3 class="{{ 'profit-positive' if portfolio.total_unrealized_pnl|float >= 0 else 'profit-negative' }}">
+                ${{ "%.2f"|format(portfolio.total_unrealized_pnl|float) }}
+            </h3>
+            <p>Нериализованный P&L</p>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="stat-card" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);">
+            <i class="fas fa-percentage"></i>
+            <h3 class="{{ 'profit-positive' if portfolio.total_return_pct|float >= 0 else 'profit-negative' }}">
+                {{ "%.2f"|format(portfolio.total_return_pct|float) }}%
+            </h3>
+            <p>Общая доходность</p>
+        </div>
+    </div>
+</div>
+
+<!-- Позиции -->
+<div class="card mb-4">
+    <div class="card-header">
+        <h5><i class="fas fa-chart-simple"></i> Текущие позиции</h5>
+    </div>
+    <div class="card-body">
+        {% if portfolio.positions %}
+        <div class="table-responsive">
+            <table class="table table-striped transaction-table">
+                <thead>
+                    <tr>
+                        <th>Актив</th>
+                        <th>Количество</th>
+                        <th>Ср. цена</th>
+                        <th>Текущая цена</th>
+                        <th>Текущая стоимость</th>
+                        <th>P&L</th>
+                        <th>P&L %</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for pos in portfolio.positions %}
+                    <tr>
+                        <td>{{ pos.ticker }}</td>
+                        <td>{{ "%.4f"|format(pos.quantity) }}</td>
+                        <td>${{ "%.2f"|format(pos.avg_price) }}</td>
+                        <td>${{ "%.2f"|format(pos.current_price|float) }}</td>
+                        <td>${{ "%.2f"|format(pos.current_value|float) }}</td>
+                        <td class="{{ 'profit-positive' if pos.unrealized_pnl|float >= 0 else 'profit-negative' }}">
+                            ${{ "%.2f"|format(pos.unrealized_pnl|float) }}
+                        </td>
+                        <td class="{{ 'profit-positive' if pos.unrealized_pnl_pct|float >= 0 else 'profit-negative' }}">
+                            {{ "%.2f"|format(pos.unrealized_pnl_pct|float) }}%
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="alert alert-info">
+            <i class="fas fa-info-circle"></i> В портфеле пока нет активов
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Последние транзакции -->
+<div class="card">
+    <div class="card-header">
+        <h5><i class="fas fa-history"></i> Последние транзакции</h5>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-sm">
+                <thead>
+                    <tr>
+                        <th>Дата</th>
+                        <th>Тип</th>
+                        <th>Актив</th>
+                        <th>Количество</th>
+                        <th>Цена</th>
+                        <th>Сумма</th>
+                    </tr>
+                </thead>
+                <tbody id="recent-transactions">
+                    <tr><td colspan="6" class="text-center">Загрузка...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function loadTransactions() {
+    const token = document.cookie.replace(/(?:(?:^|.*;\s*)access_token\s*\=\s*([^;]*).*$)|^.*$/, "$1");
+    
+    const response = await fetch(`/api/transactions/portfolio/{{ portfolio.id }}`, {
+        headers: {
+            'Authorization': `Bearer ${token}`
+        }
+    });
+    
+    if (response.ok) {
+        const transactions = await response.json();
+        const tbody = document.getElementById('recent-transactions');
+        if (transactions.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" class="text-center">Нет транзакций</td></tr>';
+        } else {
+            tbody.innerHTML = transactions.slice(0, 10).map(t => `
+                <tr>
+                    <td>${new Date(t.tx_date).toLocaleDateString()}</td>
+                    <td><span class="badge bg-${t.tx_type === 'buy' ? 'success' : t.tx_type === 'sell' ? 'danger' : 'info'}">${t.tx_type}</span></td>
+                    <td>${t.asset_ticker || 'Cash'}</td>
+                    <td>${t.quantity}</td>
+                    <td>$${t.price}</td>
+                    <td>$${(t.quantity * t.price).toFixed(2)}</td>
+                </tr>
+            `).join('');
+        }
+    }
+}
+
+loadTransactions();
+</script>
+{% endblock %}

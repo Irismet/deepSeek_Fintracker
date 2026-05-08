@@ -1,0 +1,370 @@
+{% extends "base.html" %}
+
+{% block title %}Редактировать транзакцию{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h4><i class="fas fa-edit"></i> Редактировать транзакцию</h4>
+            </div>
+            <div class="card-body">
+                <form method="POST">
+                    <div class="mb-3">
+                        <label for="tx_type" class="form-label">Тип операции</label>
+                        <select class="form-select" id="tx_type" name="tx_type" required>
+                            <option value="buy" {% if transaction.tx_type == 'buy' %}selected{% endif %}>Покупка</option>
+                            <option value="sell" {% if transaction.tx_type == 'sell' %}selected{% endif %}>Продажа</option>
+                            <option value="deposit" {% if transaction.tx_type == 'deposit' %}selected{% endif %}>Пополнение</option>
+                            <option value="withdraw" {% if transaction.tx_type == 'withdraw' %}selected{% endif %}>Вывод</option>
+                            <option value="dividend" {% if transaction.tx_type == 'dividend' %}selected{% endif %}>Дивиденды</option>
+                            <option value="tax_fee" {% if transaction.tx_type == 'tax_fee' %}selected{% endif %}>Налог/Комиссия</option>
+                        </select>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="quantity" class="form-label">Количество</label>
+                                <input type="number" step="any" class="form-control" id="quantity" 
+                                       name="quantity" value="{{ transaction.quantity|float }}" required>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="price" class="form-label">Цена за единицу</label>
+                                <input type="number" step="any" class="form-control" id="price" 
+                                       name="price" value="{{ transaction.price|float }}" required>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="broker_id" class="form-label">Брокер</label>
+                                <select class="form-select" id="broker_id" name="broker_id">
+                                    <option value="">Выберите брокера</option>
+                                    {% for broker in brokers %}
+                                    <option value="{{ broker.id }}" 
+                                            data-name="{{ broker.name }}" 
+                                            data-commission="{{ broker.commission_fee or 0 }}"
+                                            {% if transaction.broker_id == broker.id %}selected{% endif %}>
+                                        {{ broker.name }} {% if broker.commission_fee %}({{ broker.commission_fee }}%){% endif %}
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="exchange" class="form-label">Биржа</label>
+                                <select class="form-select" id="exchange" name="exchange">
+                                    <option value="">Выберите биржу</option>
+                                    {% for exchange in exchanges %}
+                                    <option value="{{ exchange.name }}" {% if transaction.exchange == exchange.name %}selected{% endif %}>
+                                        {{ exchange.name }} ({{ exchange.country }})
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="tx_currency" class="form-label">Валюта сделки</label>
+                                <select class="form-select" id="tx_currency" name="tx_currency" required>
+                                    <option value="USD" {% if transaction.tx_currency == 'USD' %}selected{% endif %}>USD</option>
+                                    <option value="EUR" {% if transaction.tx_currency == 'EUR' %}selected{% endif %}>EUR</option>
+                                    <option value="RUB" {% if transaction.tx_currency == 'RUB' %}selected{% endif %}>RUB</option>
+                                    <option value="KZT" {% if transaction.tx_currency == 'KZT' %}selected{% endif %}>KZT</option>
+                                    <option value="BTC" {% if transaction.tx_currency == 'BTC' %}selected{% endif %}>BTC</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="fee" class="form-label">Комиссия</label>
+                                <div class="input-group">
+                                    <input type="number" step="any" class="form-control" id="fee" 
+                                           name="fee" value="{{ transaction.fee|float }}">
+                                    <button type="button" class="btn btn-outline-secondary" id="calculateFeeBtn">
+                                        <i class="fas fa-calculator"></i> Пересчитать
+                                    </button>
+                                </div>
+                                <div id="feeFormula" class="form-text text-muted" style="font-size: 0.8em;"></div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="notes" class="form-label">Заметки</label>
+                        <textarea class="form-control" id="notes" name="notes" rows="3">{{ transaction.notes or '' }}</textarea>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="tx_date" class="form-label">Дата сделки</label>
+                        <input type="datetime-local" class="form-control" id="tx_date" 
+                               name="tx_date" value="{{ transaction.tx_date.strftime('%Y-%m-%dT%H:%M') }}" required>
+                    </div>
+                    
+                    <div class="alert alert-warning">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <strong>Внимание!</strong> После редактирования транзакции позиции портфеля будут автоматически пересчитаны.
+                    </div>
+                    
+                    <div class="card mt-3" id="previewCard" style="display: none;">
+                        <div class="card-header bg-primary text-white">
+                            <h6 class="mb-0"><i class="fas fa-eye"></i> Предпросмотр сделки</h6>
+                        </div>
+                        <div class="card-body">
+                            <table class="table table-sm table-borderless">
+                                <tr>
+                                    <th width="40%">Сумма сделки:</th>
+                                    <td id="previewAmount" class="text-end">0.00</td>
+                                </tr>
+                                <tr>
+                                    <th>Комиссия:</th>
+                                    <td id="previewFee" class="text-end">0.00</td>
+                                </tr>
+                                <tr class="table-primary">
+                                    <th><strong>Итого к списанию:</strong></th>
+                                    <td id="previewTotal" class="text-end"><strong>0.00</strong></td>
+                                </tr>
+                            </table>
+                        </div>
+                    </div>
+                    
+                    <div class="d-flex justify-content-between mt-3">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save"></i> Сохранить
+                        </button>
+                        <a href="{{ url_for('portfolios_detail_html', portfolio_id=portfolio_id) }}" class="btn btn-secondary">
+                            <i class="fas fa-times"></i> Отмена
+                        </a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Данные о брокерах из базы
+const brokersData = {
+    {% for broker in brokers %}
+    {{ broker.id }}: {
+        name: "{{ broker.name }}",
+        commission: {{ broker.commission_fee or 0 }}
+    },
+    {% endfor %}
+};
+
+function calculateFee(amount, brokerId, exchange) {
+    if (!brokerId || !amount || amount <= 0) {
+        return { fee: 0, formula: "Заполните сумму и выберите брокера" };
+    }
+    
+    const broker = brokersData[brokerId];
+    if (!broker || !broker.commission) {
+        return { fee: 0, formula: "Комиссия не установлена для этого брокера" };
+    }
+    
+    const commissionPercent = broker.commission;
+    const baseFee = amount * commissionPercent / 100;
+    
+    let fee = baseFee;
+    let formula = `${amount.toFixed(2)} × ${commissionPercent}% / 100 = ${baseFee.toFixed(2)}`;
+    
+    if (exchange === 'KASE' || exchange === 'AIX') {
+        fee = baseFee;
+        formula = `${amount.toFixed(2)} × ${commissionPercent}% / 100 = ${fee.toFixed(2)}`;
+    } else {
+        if (broker.name === 'Freedom Broker') {
+            fee = baseFee + 1.2;
+            formula = `(${amount.toFixed(2)} × ${commissionPercent}% / 100) + 1.2 = ${fee.toFixed(2)}`;
+        } else if (broker.name === 'Alatau City Invest' || broker.name === 'Halyk Invest') {
+            fee = baseFee + 7.5;
+            formula = `(${amount.toFixed(2)} × ${commissionPercent}% / 100) + 7.5 = ${fee.toFixed(2)}`;
+        } else {
+            fee = baseFee;
+            formula = `${amount.toFixed(2)} × ${commissionPercent}% / 100 = ${fee.toFixed(2)}`;
+        }
+    }
+    
+    return { fee: parseFloat(fee.toFixed(2)), formula: formula };
+}
+
+function updateCalculations() {
+    const quantity = parseFloat(document.getElementById('quantity').value);
+    const price = parseFloat(document.getElementById('price').value);
+    const brokerId = document.getElementById('broker_id').value;
+    const exchange = document.getElementById('exchange').value;
+    const amount = quantity * price;
+    
+    if (quantity && price && brokerId && !isNaN(amount)) {
+        const result = calculateFee(amount, brokerId, exchange);
+        document.getElementById('fee').value = result.fee;
+        document.getElementById('feeFormula').innerHTML = `<i class="fas fa-chart-line"></i> ${result.formula}`;
+        updatePreview(amount, result.fee);
+    }
+}
+
+function updatePreview(amount, fee) {
+    const total = amount + fee;
+    const currency = document.getElementById('tx_currency').value;
+    
+    document.getElementById('previewAmount').innerHTML = `${amount.toFixed(2)} ${currency}`;
+    document.getElementById('previewFee').innerHTML = `${fee.toFixed(2)} ${currency}`;
+    document.getElementById('previewTotal').innerHTML = `${total.toFixed(2)} ${currency}`;
+    document.getElementById('previewCard').style.display = 'block';
+}
+
+document.getElementById('calculateFeeBtn').addEventListener('click', () => {
+    const quantity = parseFloat(document.getElementById('quantity').value);
+    const price = parseFloat(document.getElementById('price').value);
+    const brokerId = document.getElementById('broker_id').value;
+    const exchange = document.getElementById('exchange').value;
+    
+    if (quantity && price && brokerId) {
+        const amount = quantity * price;
+        const result = calculateFee(amount, brokerId, exchange);
+        document.getElementById('fee').value = result.fee;
+        document.getElementById('feeFormula').innerHTML = `<i class="fas fa-chart-line"></i> ${result.formula}`;
+        alert(`Детальный расчет комиссии:\n\nСумма сделки: ${amount.toFixed(2)}\nФормула: ${result.formula}`);
+    } else {
+        alert('Пожалуйста, заполните количество, цену и выберите брокера');
+    }
+});
+
+document.getElementById('quantity').addEventListener('input', updateCalculations);
+document.getElementById('price').addEventListener('input', updateCalculations);
+document.getElementById('broker_id').addEventListener('change', updateCalculations);
+document.getElementById('exchange').addEventListener('change', updateCalculations);
+document.getElementById('tx_currency').addEventListener('change', () => {
+    const quantity = parseFloat(document.getElementById('quantity').value);
+    const price = parseFloat(document.getElementById('price').value);
+    const fee = parseFloat(document.getElementById('fee').value);
+    if (quantity && price) {
+        updatePreview(quantity * price, fee);
+    }
+});
+
+// В transactions/create.html - замените функцию отправки
+document.getElementById('transactionForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    // Функция для получения cookie
+    function getCookie(name) {
+        const value = `; ${document.cookie}`;
+        const parts = value.split(`; ${name}=`);
+        if (parts.length === 2) return parts.pop().split(';').shift();
+        return null;
+    }
+    
+    const token = getCookie('access_token');
+    
+    console.log('Token found:', token ? 'Yes' : 'No');
+    
+    if (!token) {
+        alert('Сессия истекла. Пожалуйста, войдите снова.');
+        window.location.href = '/auth/login';
+        return;
+    }
+    
+    // Проверяем токен перед отправкой
+    try {
+        const checkResponse = await fetch('/debug/check-token');
+        const checkData = await checkResponse.json();
+        
+        if (!checkData.token_valid) {
+            alert('Токен недействителен. Пожалуйста, войдите снова.');
+            window.location.href = '/auth/login';
+            return;
+        }
+    } catch (err) {
+        console.error('Token check failed:', err);
+    }
+    
+    const assetSelect = document.getElementById('asset_id');
+    const assetId = assetSelect.value;
+    
+    const formData = {
+        portfolio_id: parseInt(document.getElementById('portfolio_id').value),
+        tx_type: document.getElementById('tx_type').value,
+        quantity: parseFloat(document.getElementById('quantity').value),
+        price: parseFloat(document.getElementById('price').value),
+        fee: parseFloat(document.getElementById('fee').value),
+        tx_currency: document.getElementById('tx_currency').value,
+        tx_date: new Date(document.getElementById('tx_date').value).toISOString(),
+        broker_id: document.getElementById('broker_id').value ? parseInt(document.getElementById('broker_id').value) : null,
+        exchange: document.getElementById('exchange').value || null,
+        notes: document.getElementById('notes').value || null
+    };
+    
+    // Если выбран актив, добавляем его данные
+    if (assetId) {
+        const selectedOption = assetSelect.options[assetSelect.selectedIndex];
+        formData.asset_ticker = selectedOption.getAttribute('data-ticker');
+        formData.asset_id = parseInt(assetId);
+    }
+    
+    // Показываем индикатор загрузки
+    const submitBtn = e.target.querySelector('button[type="submit"]');
+    const originalText = submitBtn.innerHTML;
+    submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Сохранение...';
+    submitBtn.disabled = true;
+    
+    try {
+        console.log('Sending transaction data:', formData);
+        
+        const response = await fetch('/api/transactions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify(formData)
+        });
+        
+        console.log('Response status:', response.status);
+        
+        if (response.status === 401) {
+            alert('Сессия истекла. Пожалуйста, войдите снова.');
+            window.location.href = '/auth/login';
+            return;
+        }
+        
+        // Проверяем Content-Type
+        const contentType = response.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+            const data = await response.json();
+            
+            if (response.ok) {
+                window.location.href = `/portfolios/${formData.portfolio_id}`;
+            } else {
+                alert('Ошибка: ' + (data.error || data.message || 'Неизвестная ошибка'));
+            }
+        } else {
+            const text = await response.text();
+            console.error('Non-JSON response:', text);
+            alert('Ошибка сервера. Проверьте консоль для деталей.');
+        }
+    } catch (error) {
+        console.error('Fetch error:', error);
+        alert('Ошибка при сохранении: ' + error.message);
+    } finally {
+        submitBtn.innerHTML = originalText;
+        submitBtn.disabled = false;
+    }
+});
+
+// Инициализация
+updateCalculations();
+</script>
+{% endblock %}

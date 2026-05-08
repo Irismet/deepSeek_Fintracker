@@ -1,0 +1,53 @@
+/* app/static/css/custom.css */
+.portfolio-card {
+    transition: transform 0.2s;
+    margin-bottom: 20px;
+}
+
+.portfolio-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+}
+
+.profit-positive {
+    color: #28a745;
+    font-weight: bold;
+}
+
+.profit-negative {
+    color: #dc3545;
+    font-weight: bold;
+}
+
+.stat-card {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 20px;
+}
+
+.stat-card i {
+    font-size: 2rem;
+    opacity: 0.8;
+}
+
+.chart-container {
+    position: relative;
+    height: 400px;
+    margin-bottom: 30px;
+}
+
+.transaction-table {
+    font-size: 0.9rem;
+}
+
+.badge-crypto {
+    background-color: #f7931a;
+    color: white;
+}
+
+.badge-stock {
+    background-color: #17a2b8;
+    color: white;
+}

@@ -1,0 +1,36 @@
+<!-- app/templates/portfolios/create.html -->
+{% extends "base.html" %}
+
+{% block title %}Создать портфель{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h4><i class="fas fa-plus"></i> Создать портфель</h4>
+            </div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('portfolios_create_html') }}">
+                    <div class="mb-3">
+                        <label for="name" class="form-label">Название портфеля</label>
+                        <input type="text" class="form-control" id="name" name="name" required>
+                        <div class="form-text">Например: "Долгосрочные инвестиции", "Криптопортфель"</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="currency" class="form-label">Базовая валюта</label>
+                        <select class="form-control" id="currency" name="currency" required>
+                            <option value="USD">USD - Доллар США</option>
+                            <option value="EUR">EUR - Евро</option>
+                            <option value="RUB">RUB - Российский рубль</option>
+                            <option value="BTC">BTC - Bitcoin</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Создать</button>
+                    <a href="{{ url_for('portfolios_list') }}" class="btn btn-secondary">Отмена</a>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

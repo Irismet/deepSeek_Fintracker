@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+
+{% block title %}{{ asset.ticker }} - {{ asset.name }}{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2>
+        <i class="fas fa-chart-line"></i> {{ asset.ticker }}
+        <small class="text-muted">{{ asset.name }}</small>
+    </h2>
+    <div>
+        <a href="{{ url_for('asset_edit_html', asset_id=asset.id) }}" class="btn btn-primary">
+            <i class="fas fa-edit"></i> Редактировать
+        </a>
+        <a href="{{ url_for('assets_list') }}" class="btn btn-secondary">
+            <i class="fas fa-arrow-left"></i> Назад
+        </a>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-6">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5><i class="fas fa-info-circle"></i> Информация об активе</h5>
+            </div>
+            <div class="card-body">
+                <table class="table table-bordered">
+                    <tr>
+                        <th>Тикер</th>
+                        <td>{{ asset.ticker }}</td>
+                    </tr>
+                    <tr>
+                        <th>Название</th>
+                        <td>{{ asset.name }}</td>
+                    </tr>
+                    <tr>
+                        <th>Тип</th>
+                        <td>
+                            <span class="badge bg-{{ 'warning' if asset.asset_type == 'crypto' else 'info' }}">
+                                {{ asset.asset_type }}
+                            </span>
+                        </td>
+                    </tr>
+                    <!-- В секции информации об активе добавьте строку -->
+                    <tr>
+                        <th>ISIN</th>
+                        <td>{{ asset.isin or 'Не указан' }}</td>
+                    </tr>
+                    <tr>
+                        <th>Валюта</th>
+                        <td>{{ asset.currency }}</td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5><i class="fas fa-chart-line"></i> Последние цены</h5>
+            </div>
+            <div class="card-body">
+                {% if prices %}
+                <div class="table-responsive">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>Дата</th>
+                                <th>Цена закрытия</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for price in prices[:10] %}
+                            <tr>
+                                <td>{{ price.price_date.strftime('%Y-%m-%d') }}</td>
+                                <td>${{ "%.2f"|format(price.close|float) }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle"></i> Нет исторических данных
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h5><i class="fas fa-history"></i> Транзакции с этим активом</h5>
+    </div>
+    <div class="card-body">
+        {% if transactions %}
+        <div class="table-responsive">
+            <table class="table table-striped">
+                <thead>
+                    <tr>
+                        <th>Дата</th>
+                        <th>Портфель</th>
+                        <th>Тип</th>
+                        <th>Количество</th>
+                        <th>Цена</th>
+                        <th>Сумма</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for tx in transactions %}
+                    <tr>
+                        <td>{{ tx.tx_date.strftime('%Y-%m-%d %H:%M') }}</td>
+                        <td>{{ tx.portfolio.name }}</td>
+                        <td>
+                            <span class="badge bg-{{ 'success' if tx.tx_type == 'buy' else 'danger' }}">
+                                {{ tx.tx_type }}
+                            </span>
+                        </td>
+                        <td>{{ "%.4f"|format(tx.quantity|float) }}</td>
+                        <td>${{ "%.2f"|format(tx.price|float) }}</td>
+                        <td>${{ "%.2f"|format((tx.quantity|float) * (tx.price|float)) }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="alert alert-info">
+            <i class="fas fa-info-circle"></i> Нет транзакций с этим активом
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

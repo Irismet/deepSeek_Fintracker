@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+
+{% block title %}Редактировать портфель{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h4><i class="fas fa-edit"></i> Редактировать портфель</h4>
+            </div>
+            <div class="card-body">
+                <form method="POST">
+                    <div class="mb-3">
+                        <label for="name" class="form-label">Название портфеля</label>
+                        <input type="text" class="form-control" id="name" name="name" value="{{ portfolio.name }}" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="currency" class="form-label">Базовая валюта</label>
+                        <select class="form-select" id="currency" name="currency" required>
+                            <option value="USD" {% if portfolio.currency == 'USD' %}selected{% endif %}>USD - Доллар США</option>
+                            <option value="EUR" {% if portfolio.currency == 'EUR' %}selected{% endif %}>EUR - Евро</option>
+                            <option value="RUB" {% if portfolio.currency == 'RUB' %}selected{% endif %}>RUB - Российский рубль</option>
+                            <option value="GBP" {% if portfolio.currency == 'GBP' %}selected{% endif %}>GBP - Британский фунт</option>
+                            <option value="BTC" {% if portfolio.currency == 'BTC' %}selected{% endif %}>BTC - Bitcoin</option>
+                        </select>
+                    </div>
+                    <div class="d-flex justify-content-between">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save"></i> Сохранить
+                        </button>
+                        <a href="{{ url_for('portfolios_detail_html', portfolio_id=portfolio.id) }}" class="btn btn-secondary">
+                            <i class="fas fa-times"></i> Отмена
+                        </a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
