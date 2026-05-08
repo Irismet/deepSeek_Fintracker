@@ -10,10 +10,13 @@
                 <h4><i class="fas fa-edit"></i> Редактировать транзакцию</h4>
             </div>
             <div class="card-body">
-                <form method="POST">
+                <form id="transactionForm">
+                    <input type="hidden" id="portfolio_id" name="portfolio_id" value="{{ portfolio_id }}">
+                    <input type="hidden" id="transaction_id" name="transaction_id" value="{{ transaction.id }}">
+                    
                     <div class="mb-3">
                         <label for="tx_type" class="form-label">Тип операции</label>
-                        <select class="form-select" id="tx_type" name="tx_type" required>
+                        <select class="form-control" id="tx_type" name="tx_type" required>
                             <option value="buy" {% if transaction.tx_type == 'buy' %}selected{% endif %}>Покупка</option>
                             <option value="sell" {% if transaction.tx_type == 'sell' %}selected{% endif %}>Продажа</option>
                             <option value="deposit" {% if transaction.tx_type == 'deposit' %}selected{% endif %}>Пополнение</option>
@@ -21,6 +24,28 @@
                             <option value="dividend" {% if transaction.tx_type == 'dividend' %}selected{% endif %}>Дивиденды</option>
                             <option value="tax_fee" {% if transaction.tx_type == 'tax_fee' %}selected{% endif %}>Налог/Комиссия</option>
                         </select>
+                    </div>
+                    
+                    <div class="mb-3" id="asset_section">
+                        <label for="asset_id" class="form-label">Актив</label>
+                        <select class="form-control" id="asset_id" name="asset_id">
+                            <option value="">Выберите актив (или оставьте пустым для кэша)</option>
+                            {% for asset in assets %}
+                            <option value="{{ asset.id }}" 
+                                    data-ticker="{{ asset.ticker }}" 
+                                    data-currency="{{ asset.currency }}" 
+                                    data-exchange="{{ asset.exchange.name if asset.exchange else '' }}"
+                                    {% if transaction.asset_id == asset.id %}selected{% endif %}>
+                                {{ asset.ticker }} - {{ asset.name }} 
+                                {% if asset.isin %}({{ asset.isin }}){% endif %}
+                                {% if asset.exchange %} [{{ asset.exchange.name }}]{% endif %}
+                            </option>
+                            {% endfor %}
+                        </select>
+                        <div class="form-text mt-2">
+                            <i class="fas fa-plus-circle"></i> 
+                            <a href="{{ url_for('asset_create_html') }}" target="_blank">Создать новый актив</a>, если его нет в списке
+                        </div>
                     </div>
                     
                     <div class="row">
@@ -44,14 +69,17 @@
                         <div class="col-md-6">
                             <div class="mb-3">
                                 <label for="broker_id" class="form-label">Брокер</label>
-                                <select class="form-select" id="broker_id" name="broker_id">
+                                <select class="form-control" id="broker_id" name="broker_id">
                                     <option value="">Выберите брокера</option>
                                     {% for broker in brokers %}
                                     <option value="{{ broker.id }}" 
                                             data-name="{{ broker.name }}" 
                                             data-commission="{{ broker.commission_fee or 0 }}"
                                             {% if transaction.broker_id == broker.id %}selected{% endif %}>
-                                        {{ broker.name }} {% if broker.commission_fee %}({{ broker.commission_fee }}%){% endif %}
+                                        {{ broker.name }} 
+                                        {% if broker.commission_fee %}
+                                            ({{ broker.commission_fee }}% комиссия)
+                                        {% endif %}
                                     </option>
                                     {% endfor %}
                                 </select>
@@ -60,7 +88,7 @@
                         <div class="col-md-6">
                             <div class="mb-3">
                                 <label for="exchange" class="form-label">Биржа</label>
-                                <select class="form-select" id="exchange" name="exchange">
+                                <select class="form-control" id="exchange" name="exchange">
                                     <option value="">Выберите биржу</option>
                                     {% for exchange in exchanges %}
                                     <option value="{{ exchange.name }}" {% if transaction.exchange == exchange.name %}selected{% endif %}>
@@ -76,7 +104,7 @@
                         <div class="col-md-6">
                             <div class="mb-3">
                                 <label for="tx_currency" class="form-label">Валюта сделки</label>
-                                <select class="form-select" id="tx_currency" name="tx_currency" required>
+                                <select class="form-control" id="tx_currency" name="tx_currency" required>
                                     <option value="USD" {% if transaction.tx_currency == 'USD' %}selected{% endif %}>USD</option>
                                     <option value="EUR" {% if transaction.tx_currency == 'EUR' %}selected{% endif %}>EUR</option>
                                     <option value="RUB" {% if transaction.tx_currency == 'RUB' %}selected{% endif %}>RUB</option>
@@ -111,6 +139,11 @@
                                name="tx_date" value="{{ transaction.tx_date.strftime('%Y-%m-%dT%H:%M') }}" required>
                     </div>
                     
+                    <div class="alert alert-info" id="calculationInfo" style="display: none;">
+                        <i class="fas fa-info-circle"></i> 
+                        <span id="calculationText"></span>
+                    </div>
+                    
                     <div class="alert alert-warning">
                         <i class="fas fa-exclamation-triangle"></i>
                         <strong>Внимание!</strong> После редактирования транзакции позиции портфеля будут автоматически пересчитаны.
@@ -131,7 +164,7 @@
                                     <td id="previewFee" class="text-end">0.00</td>
                                 </tr>
                                 <tr class="table-primary">
-                                    <th><strong>Итого к списанию:</strong></th>
+                                    <th><strong>Итого:</strong></th>
                                     <td id="previewTotal" class="text-end"><strong>0.00</strong></td>
                                 </tr>
                             </table>
@@ -139,10 +172,12 @@
                     </div>
                     
                     <div class="d-flex justify-content-between mt-3">
+                        <form method="PUT" action="{{ url_for('transaction_edit_html', transaction_id=transaction.id) }}"></form>
                         <button type="submit" class="btn btn-primary">
                             <i class="fas fa-save"></i> Сохранить
                         </button>
-                        <a href="{{ url_for('portfolios_detail_html', portfolio_id=portfolio_id) }}" class="btn btn-secondary">
+                            <a href="{{ url_for('portfolios_detail_html', portfolio_id=portfolio_id) }}" class="btn btn-secondary">
+                        </form>
                             <i class="fas fa-times"></i> Отмена
                         </a>
                     </div>
@@ -165,6 +200,19 @@ const brokersData = {
     {% endfor %}
 };
 
+// Функция получения токена из cookie
+function getAccessToken() {
+    const cookies = document.cookie.split(';');
+    for (let i = 0; i < cookies.length; i++) {
+        let cookie = cookies[i].trim();
+        if (cookie.startsWith('access_token=')) {
+            return cookie.substring('access_token='.length);
+        }
+    }
+    return localStorage.getItem('access_token');
+}
+
+// Функция расчета комиссии
 function calculateFee(amount, brokerId, exchange) {
     if (!brokerId || !amount || amount <= 0) {
         return { fee: 0, formula: "Заполните сумму и выберите брокера" };
@@ -197,34 +245,38 @@ function calculateFee(amount, brokerId, exchange) {
         }
     }
     
-    return { fee: parseFloat(fee.toFixed(2)), formula: formula };
+    return { fee: parseFloat(fee.toFixed(2)), formula: formula, commissionPercent: commissionPercent };
 }
 
-function updateCalculations() {
+// Функция обновления всех расчетов
+function updateAllCalculations() {
     const quantity = parseFloat(document.getElementById('quantity').value);
     const price = parseFloat(document.getElementById('price').value);
     const brokerId = document.getElementById('broker_id').value;
     const exchange = document.getElementById('exchange').value;
+    
     const amount = quantity * price;
     
     if (quantity && price && brokerId && !isNaN(amount)) {
         const result = calculateFee(amount, brokerId, exchange);
+        
         document.getElementById('fee').value = result.fee;
         document.getElementById('feeFormula').innerHTML = `<i class="fas fa-chart-line"></i> ${result.formula}`;
-        updatePreview(amount, result.fee);
+        
+        // Обновляем превью
+        const total = amount + result.fee;
+        const currency = document.getElementById('tx_currency').value;
+        
+        document.getElementById('previewAmount').innerHTML = `${amount.toFixed(2)} ${currency}`;
+        document.getElementById('previewFee').innerHTML = `${result.fee.toFixed(2)} ${currency}`;
+        document.getElementById('previewTotal').innerHTML = `${total.toFixed(2)} ${currency}`;
+        document.getElementById('previewCard').style.display = 'block';
+    } else {
+        document.getElementById('previewCard').style.display = 'none';
     }
 }
 
-function updatePreview(amount, fee) {
-    const total = amount + fee;
-    const currency = document.getElementById('tx_currency').value;
-    
-    document.getElementById('previewAmount').innerHTML = `${amount.toFixed(2)} ${currency}`;
-    document.getElementById('previewFee').innerHTML = `${fee.toFixed(2)} ${currency}`;
-    document.getElementById('previewTotal').innerHTML = `${total.toFixed(2)} ${currency}`;
-    document.getElementById('previewCard').style.display = 'block';
-}
-
+// Кнопка ручного расчета
 document.getElementById('calculateFeeBtn').addEventListener('click', () => {
     const quantity = parseFloat(document.getElementById('quantity').value);
     const price = parseFloat(document.getElementById('price').value);
@@ -242,34 +294,35 @@ document.getElementById('calculateFeeBtn').addEventListener('click', () => {
     }
 });
 
-document.getElementById('quantity').addEventListener('input', updateCalculations);
-document.getElementById('price').addEventListener('input', updateCalculations);
-document.getElementById('broker_id').addEventListener('change', updateCalculations);
-document.getElementById('exchange').addEventListener('change', updateCalculations);
-document.getElementById('tx_currency').addEventListener('change', () => {
-    const quantity = parseFloat(document.getElementById('quantity').value);
-    const price = parseFloat(document.getElementById('price').value);
-    const fee = parseFloat(document.getElementById('fee').value);
-    if (quantity && price) {
-        updatePreview(quantity * price, fee);
+// Автозаполнение при выборе актива
+document.getElementById('asset_id').addEventListener('change', function() {
+    const selectedOption = this.options[this.selectedIndex];
+    const currency = selectedOption.getAttribute('data-currency');
+    const exchange = selectedOption.getAttribute('data-exchange');
+    
+    if (currency) {
+        document.getElementById('tx_currency').value = currency;
     }
+    if (exchange) {
+        document.getElementById('exchange').value = exchange;
+    }
+    updateAllCalculations();
 });
 
-// В transactions/create.html - замените функцию отправки
-document.getElementById('transactionForm').addEventListener('submit', async (e) => {
+// Слушатели для автоматического пересчета
+document.getElementById('quantity').addEventListener('input', updateAllCalculations);
+document.getElementById('price').addEventListener('input', updateAllCalculations);
+document.getElementById('broker_id').addEventListener('change', updateAllCalculations);
+document.getElementById('exchange').addEventListener('change', updateAllCalculations);
+document.getElementById('tx_currency').addEventListener('change', updateAllCalculations);
+
+// Отправка формы (PUT запрос для обновления)
+document.getElementById('transactionForm').addEventListener('submit', async function(e) {
     e.preventDefault();
     
-    // Функция для получения cookie
-    function getCookie(name) {
-        const value = `; ${document.cookie}`;
-        const parts = value.split(`; ${name}=`);
-        if (parts.length === 2) return parts.pop().split(';').shift();
-        return null;
-    }
+    console.log('=== Starting form submission (UPDATE) ===');
     
-    const token = getCookie('access_token');
-    
-    console.log('Token found:', token ? 'Yes' : 'No');
+    const token = getAccessToken();
     
     if (!token) {
         alert('Сессия истекла. Пожалуйста, войдите снова.');
@@ -277,54 +330,51 @@ document.getElementById('transactionForm').addEventListener('submit', async (e) 
         return;
     }
     
-    // Проверяем токен перед отправкой
-    try {
-        const checkResponse = await fetch('/debug/check-token');
-        const checkData = await checkResponse.json();
-        
-        if (!checkData.token_valid) {
-            alert('Токен недействителен. Пожалуйста, войдите снова.');
-            window.location.href = '/auth/login';
-            return;
-        }
-    } catch (err) {
-        console.error('Token check failed:', err);
-    }
+    const transactionId = parseInt(document.getElementById('transaction_id').value);
+    const portfolioId = parseInt(document.getElementById('portfolio_id').value);
+    const txType = document.getElementById('tx_type').value;
+    const quantity = parseFloat(document.getElementById('quantity').value);
+    const price = parseFloat(document.getElementById('price').value);
+    const fee = parseFloat(document.getElementById('fee').value);
+    const txCurrency = document.getElementById('tx_currency').value;
+    const txDate = document.getElementById('tx_date').value;
+    const brokerId = document.getElementById('broker_id').value ? parseInt(document.getElementById('broker_id').value) : null;
+    const exchange = document.getElementById('exchange').value || null;
+    const notes = document.getElementById('notes').value || null;
     
     const assetSelect = document.getElementById('asset_id');
-    const assetId = assetSelect.value;
+    const assetId = assetSelect.value ? parseInt(assetSelect.value) : null;
+    const assetTicker = assetId ? assetSelect.options[assetSelect.selectedIndex].getAttribute('data-ticker') : null;
     
     const formData = {
-        portfolio_id: parseInt(document.getElementById('portfolio_id').value),
-        tx_type: document.getElementById('tx_type').value,
-        quantity: parseFloat(document.getElementById('quantity').value),
-        price: parseFloat(document.getElementById('price').value),
-        fee: parseFloat(document.getElementById('fee').value),
-        tx_currency: document.getElementById('tx_currency').value,
-        tx_date: new Date(document.getElementById('tx_date').value).toISOString(),
-        broker_id: document.getElementById('broker_id').value ? parseInt(document.getElementById('broker_id').value) : null,
-        exchange: document.getElementById('exchange').value || null,
-        notes: document.getElementById('notes').value || null
+        transaction_id: transactionId,
+        portfolio_id: portfolioId,
+        tx_type: txType,
+        quantity: quantity,
+        price: price,
+        fee: fee,
+        tx_currency: txCurrency,
+        tx_date: new Date(txDate).toISOString(),
+        broker_id: brokerId,
+        exchange: exchange,
+        notes: notes
     };
     
-    // Если выбран актив, добавляем его данные
     if (assetId) {
-        const selectedOption = assetSelect.options[assetSelect.selectedIndex];
-        formData.asset_ticker = selectedOption.getAttribute('data-ticker');
-        formData.asset_id = parseInt(assetId);
+        formData.asset_id = assetId;
+        formData.asset_ticker = assetTicker;
     }
     
-    // Показываем индикатор загрузки
-    const submitBtn = e.target.querySelector('button[type="submit"]');
+    console.log('Updating transaction:', formData);
+    
+    const submitBtn = this.querySelector('button[type="submit"]');
     const originalText = submitBtn.innerHTML;
     submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Сохранение...';
     submitBtn.disabled = true;
     
     try {
-        console.log('Sending transaction data:', formData);
-        
-        const response = await fetch('/api/transactions', {
-            method: 'POST',
+        const response = await fetch(`/api/transactions/${transactionId}`, {
+            method: 'PUT',
             headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${token}`
@@ -332,28 +382,26 @@ document.getElementById('transactionForm').addEventListener('submit', async (e) 
             body: JSON.stringify(formData)
         });
         
-        console.log('Response status:', response.status);
-        
         if (response.status === 401) {
             alert('Сессия истекла. Пожалуйста, войдите снова.');
             window.location.href = '/auth/login';
             return;
         }
         
-        // Проверяем Content-Type
         const contentType = response.headers.get('content-type');
         if (contentType && contentType.includes('application/json')) {
             const data = await response.json();
             
             if (response.ok) {
-                window.location.href = `/portfolios/${formData.portfolio_id}`;
+                console.log('Transaction updated successfully');
+                window.location.href = `/portfolios/${portfolioId}`;
             } else {
                 alert('Ошибка: ' + (data.error || data.message || 'Неизвестная ошибка'));
             }
         } else {
             const text = await response.text();
-            console.error('Non-JSON response:', text);
-            alert('Ошибка сервера. Проверьте консоль для деталей.');
+            console.error('Non-JSON response:', text.substring(0, 500));
+            alert('Ошибка сервера. Проверьте консоль.');
         }
     } catch (error) {
         console.error('Fetch error:', error);
@@ -364,7 +412,7 @@ document.getElementById('transactionForm').addEventListener('submit', async (e) 
     }
 });
 
-// Инициализация
-updateCalculations();
+// Инициализация расчетов
+updateAllCalculations();
 </script>
 {% endblock %}

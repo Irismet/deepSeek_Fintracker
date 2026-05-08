@@ -11,10 +11,11 @@ from app.models.asset_class import AssetClass
 from app.models.sector import Sector
 from app.models.currency_rate import CurrencyRate
 from app.models.cash_flow import CashFlow
-from app.models.price_cache import PriceCache  # Новая модель
+from app.models.price_cache import PriceCache
+from app.models.closed_positions import ClosedPosition  # Добавляем
 
 __all__ = [
     'User', 'Asset', 'Portfolio', 'Transaction', 'Position',
     'HistoricalPrice', 'Broker', 'Exchange', 'AssetClass',
-    'Sector', 'CurrencyRate', 'CashFlow', 'PriceCache'
+    'Sector', 'CurrencyRate', 'CashFlow', 'PriceCache', 'ClosedPosition'
 ]

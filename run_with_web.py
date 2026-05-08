@@ -34,6 +34,10 @@ jwt = JWTManager(app)
 # Регистрируем HTML маршруты
 register_routes(app)
 
+# Глобальные переменные для фонового обновления
+_background_running = False
+_background_thread = None
+
 # Настройка планировщика
 scheduler = BackgroundScheduler()
 
@@ -133,11 +137,13 @@ def manual_login(user_id):
 
 def background_price_updater():
     """Фоновый поток для обновления цен"""
-    global background_running
+    global _background_running
     from app.services.price_cache_service import price_cache_service
     
+    print("🔄 Background price updater thread started")
+    
     with app.app_context():
-        while background_running:
+        while _background_running:
             try:
                 print("\n" + "="*50)
                 print(f"🔄 Updating prices at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
@@ -157,23 +163,50 @@ def background_price_updater():
                 import traceback
                 traceback.print_exc()
             
-            # Ждем 2 часа
-            for _ in range(7200):  # 2 часа в секундах
-                if not background_running:
+            # Ждем 2 часа (7200 секунд)
+            print(f"⏰ Next update in 2 hours...")
+            for _ in range(7200):
+                if not _background_running:
                     break
                 time.sleep(1)
+        
+        print("🛑 Background price updater thread stopped")
 
 def start_background_updater():
     """Запуск фонового обновления"""
-    global background_running
-    if not background_running:
-        background_running = True
-        thread = threading.Thread(target=background_price_updater, daemon=True)
-        thread.start()
-        print("🚀 Background price updater started")
+    global _background_running, _background_thread
+    
+    if not _background_running:
+        _background_running = True
+        _background_thread = threading.Thread(target=background_price_updater, daemon=True)
+        _background_thread.start()
+        print("🚀 Background price updater started (updates every 2 hours)")
+        return True
+    else:
+        print("⚠️ Background updater already running")
+        return False
+
+def stop_background_updater():
+    """Остановка фонового обновления"""
+    global _background_running
+    
+    if _background_running:
+        _background_running = False
+        print("🛑 Stopping background updater...")
+        return True
+    else:
+        print("⚠️ Background updater is not running")
+        return False
 
 # Запускаем фоновое обновление через 10 секунд
-threading.Timer(10, start_background_updater).start()
+def delayed_start():
+    """Запуск с задержкой после старта приложения"""
+    time.sleep(10)
+    start_background_updater()
+
+# Запускаем поток с задержкой
+delayed_start_thread = threading.Thread(target=delayed_start, daemon=True)
+delayed_start_thread.start()
 print("⏰ Background updater will start in 10 seconds")
 
 # Маршруты для управления кэшем
@@ -182,20 +215,30 @@ def admin_update_prices():
     """Принудительное обновление всех цен"""
     from app.services.price_cache_service import price_cache_service
     
-    result = price_cache_service.update_all_prices()
-    
-    if 'error' in result:
-        return jsonify({'error': result['error']}), 500
-    else:
-        return jsonify(result)
+    try:
+        result = price_cache_service.update_all_prices()
+        
+        if 'error' in result:
+            return jsonify({'error': result['error']}), 500
+        else:
+            return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/admin/cache-stats')
 def admin_cache_stats():
     """Статистика кэша"""
     from app.services.price_cache_service import price_cache_service
+    from app.routes import get_current_user
+    
+    # Проверка авторизации (опционально)
+    # current_user = get_current_user()
+    # if not current_user:
+    #     return jsonify({'error': 'Unauthorized'}), 401
     
     stats = price_cache_service.get_cache_stats()
-    stats['background_running'] = background_running
+    stats['background_updater_running'] = _background_running
+    
     return jsonify(stats)
 
 @app.route('/admin/clear-cache', methods=['POST'])
@@ -203,25 +246,57 @@ def admin_clear_cache():
     """Очистка кэша"""
     from app.services.price_cache_service import price_cache_service
     
-    result = price_cache_service.clear_cache()
-    
-    if 'error' in result:
-        return jsonify({'error': result['error']}), 500
-    else:
-        return jsonify(result)
-
-@app.route('/admin/stop-updater')
-def admin_stop_updater():
-    """Остановка фонового обновления"""
-    global background_running
-    background_running = False
-    return jsonify({'message': 'Background updater stopped'})
+    try:
+        result = price_cache_service.clear_cache()
+        
+        if 'error' in result:
+            return jsonify({'error': result['error']}), 500
+        else:
+            return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/admin/start-updater')
 def admin_start_updater():
     """Запуск фонового обновления"""
-    start_background_updater()
-    return jsonify({'message': 'Background updater started'})
+    result = start_background_updater()
+    return jsonify({'success': result, 'message': 'Background updater started' if result else 'Already running'})
+
+@app.route('/admin/stop-updater')
+def admin_stop_updater():
+    """Остановка фонового обновления"""
+    result = stop_background_updater()
+    return jsonify({'success': result, 'message': 'Background updater stopped' if result else 'Not running'})
+
+@app.route('/admin/updater-status')
+def admin_updater_status():
+    """Статус фонового обновления"""
+    return jsonify({
+        'running': _background_running,
+        'thread_alive': _background_thread.is_alive() if _background_thread else False
+    })
+
+
+@app.route('/admin/recalc-portfolio/<int:portfolio_id>')
+@login_required
+def admin_recalc_portfolio(portfolio_id):
+    """Принудительный пересчет позиций портфеля"""
+    from app.services.position_service import PositionService
+    from app.models.portfolio import Portfolio
+    from app.routes import get_current_user
+    
+    current_user = get_current_user()
+    portfolio = Portfolio.query.filter_by(id=portfolio_id, user_id=current_user.id).first_or_404()
+    
+    try:
+        PositionService.recalc_portfolio_positions(portfolio_id)
+        flash(f'Позиции портфеля "{portfolio.name}" успешно пересчитаны!', 'success')
+    except Exception as e:
+        flash(f'Ошибка при пересчете: {e}', 'danger')
+        logger.error(f"Recalc error: {e}")
+    
+    return redirect(url_for('portfolios_detail_html', portfolio_id=portfolio_id))
+
 
 if __name__ == '__main__':
     print("=" * 70)

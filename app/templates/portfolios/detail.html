@@ -1,36 +1,24 @@
-<!-- app/templates/portfolios/detail.html -->
 {% extends "base.html" %}
 
 {% block title %}{{ portfolio.name }}{% endblock %}
 
 {% block content %}
-<div class="row mb-4">
-    <div class="col-12">
-        <div class="d-flex justify-content-between align-items-center">
-            <h2><i class="fas fa-chart-line"></i> {{ portfolio.name }}</h2>
-            <div>
-                <a href="{{ url_for('transactions_create_html', portfolio_id=portfolio.id) }}" class="btn btn-success">
-                    <i class="fas fa-plus"></i> Добавить сделку
-                </a>
-                <a href="{{ url_for('portfolios_list') }}" class="btn btn-secondary">
-                    <i class="fas fa-arrow-left"></i> Назад
-                </a>
-            </div>
-            <!-- В раздел с кнопками добавьте -->
-            {% if portfolio.last_price_update %}
-            <div class="alert alert-info small">
-                <i class="fas fa-info-circle"></i> 
-                Цены обновлены: {{ portfolio.last_price_update }}
-                <button onclick="refreshPrices()" class="btn btn-sm btn-outline-primary ms-2">
-                    <i class="fas fa-sync-alt"></i> Обновить цены
-                </button>
-            </div>
-            {% endif %}
-        </div>
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="fas fa-chart-line"></i> {{ portfolio.name }}</h2>
+    <div>
+        <a href="{{ url_for('portfolio_edit_html', portfolio_id=portfolio.id) }}" class="btn btn-warning">
+            <i class="fas fa-edit"></i> Редактировать
+        </a>
+        <a href="{{ url_for('transactions_create_html', portfolio_id=portfolio.id) }}" class="btn btn-success">
+            <i class="fas fa-plus"></i> Добавить сделку
+        </a>
+        <a href="{{ url_for('portfolios_list') }}" class="btn btn-secondary">
+            <i class="fas fa-arrow-left"></i> Назад
+        </a>
     </div>
 </div>
 
-<!-- Статистика -->
+<!-- Статистика портфеля -->
 <div class="row mb-4">
     <div class="col-md-3">
         <div class="stat-card">
@@ -66,30 +54,51 @@
     </div>
 </div>
 
-<!-- Позиции -->
-<div class="card mb-4">
-    <div class="card-header">
-        <h5><i class="fas fa-chart-simple"></i> Текущие позиции</h5>
+<!-- Информация об обновлении цен -->
+{% if portfolio.last_price_update %}
+<div class="alert alert-info small d-flex justify-content-between align-items-center">
+    <div>
+        <i class="fas fa-info-circle"></i> 
+        Цены обновлены: {{ portfolio.last_price_update }}
     </div>
-    <div class="card-body">
-        {% if portfolio.positions %}
+    <button onclick="refreshPrices()" class="btn btn-sm btn-outline-primary">
+        <i class="fas fa-sync-alt"></i> Обновить цены
+    </button>
+</div>
+{% endif %}
+
+<!-- Текущие позиции -->
+<div class="card mb-4">
+    <div class="card-header bg-success text-white">
+        <h5 class="mb-0"><i class="fas fa-chart-simple"></i> Текущие позиции</h5>
+    </div>
+    <div class="card-body p-0">
+        {% set active_positions = portfolio.positions|selectattr('quantity', 'greaterthan', 0)|list %}
+        {% if active_positions %}
         <div class="table-responsive">
-            <table class="table table-striped transaction-table">
-                <thead>
+            <table class="table table-hover mb-0">
+                <thead class="table-light">
                     <tr>
-                        <th>Актив</th>
+                        <th>Тикер</th>
+                        <th>Название</th>
                         <th>Количество</th>
                         <th>Ср. цена</th>
                         <th>Текущая цена</th>
-                        <th>Текущая стоимость</th>
+                        <th>Стоимость</th>
                         <th>P&L</th>
                         <th>P&L %</th>
+                        <th>Действия</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {% for pos in portfolio.positions %}
-                    <tr>
-                        <td>{{ pos.ticker }}</td>
+                    {% for pos in active_positions %}
+                    <tr class="position-row" data-asset-id="{{ pos.asset_id }}" data-ticker="{{ pos.ticker }}">
+                        <td>
+                            <strong>{{ pos.ticker }}</strong>
+                            <br>
+                            <small class="text-muted">{{ pos.name if pos.name else pos.ticker }}</small>
+                        </td>
+                        <td>{{ pos.name if pos.name else '-' }}</td>
                         <td>{{ "%.4f"|format(pos.quantity) }}</td>
                         <td>${{ "%.2f"|format(pos.avg_price) }}</td>
                         <td>${{ "%.2f"|format(pos.current_price|float) }}</td>
@@ -100,41 +109,214 @@
                         <td class="{{ 'profit-positive' if pos.unrealized_pnl_pct|float >= 0 else 'profit-negative' }}">
                             {{ "%.2f"|format(pos.unrealized_pnl_pct|float) }}%
                         </td>
+                        <td>
+                            <button class="btn btn-sm btn-outline-info" onclick="showTransactions({{ pos.asset_id }}, '{{ pos.ticker }}')">
+                                <i class="fas fa-history"></i> История
+                            </button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+                <tfoot class="table-dark">
+                    <tr>
+                        <th colspan="5">Итого:</th>
+                        <th>${{ "%.2f"|format(portfolio.total_value|float) }}</th>
+                        <th class="{{ 'profit-positive' if portfolio.total_unrealized_pnl|float >= 0 else 'profit-negative' }}">
+                            ${{ "%.2f"|format(portfolio.total_unrealized_pnl|float) }}
+                        </th>
+                        <th class="{{ 'profit-positive' if portfolio.total_return_pct|float >= 0 else 'profit-negative' }}">
+                            {{ "%.2f"|format(portfolio.total_return_pct|float) }}%
+                        </th>
+                        <th></th>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+        {% else %}
+        <div class="alert alert-info m-3">
+            <i class="fas fa-info-circle"></i> Нет активных позиций в портфеле
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Проданные позиции (закрытые) -->
+<div class="card mb-4">
+    <div class="card-header bg-secondary text-white">
+        <h5 class="mb-0"><i class="fas fa-history"></i> Закрытые позиции</h5>
+    </div>
+    <div class="card-body p-0">
+        {% if portfolio.closed_positions %}
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>Тикер</th>
+                        <th>Название</th>
+                        <th>Тип</th>
+                        <th>Всего куплено</th>
+                        <th>Ср. цена покупки</th>
+                        <th>Реализованный P&L</th>
+                        <th>Доходность</th>
+                        <th>Дата покупки</th>
+                        <th>Дата продажи</th>
+                        <th>Действия</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for closed in portfolio.closed_positions %}
+                    <tr>
+                        <td><strong>{{ closed.ticker }}</strong></td>
+                        <td>{{ closed.name }}</td>
+                        <td>{{ closed.asset_type }}</td>
+                        <td>{{ "%.4f"|format(closed.total_quantity) }}</td>
+                        <td>${{ "%.2f"|format(closed.avg_buy_price) }}</td>
+                        <td class="{{ 'profit-positive' if closed.realized_pnl >= 0 else 'profit-negative' }}">
+                            ${{ "%.2f"|format(closed.realized_pnl) }}
+                        </td>
+                        <td class="{{ 'profit-positive' if closed.return_percentage >= 0 else 'profit-negative' }}">
+                            {{ "%.2f"|format(closed.return_percentage) }}%
+                        </td>
+                        <td>{{ closed.first_buy_date }}</td>
+                        <td>{{ closed.last_sell_date }}</td>
+                        <td>
+                            <button class="btn btn-sm btn-outline-info" onclick="showTransactions({{ closed.asset_id }}, '{{ closed.ticker }}')">
+                                <i class="fas fa-history"></i> История
+                            </button>
+                        </td>
                     </tr>
                     {% endfor %}
                 </tbody>
             </table>
         </div>
         {% else %}
-        <div class="alert alert-info">
-            <i class="fas fa-info-circle"></i> В портфеле пока нет активов
+        <div class="alert alert-info m-3">
+            <i class="fas fa-info-circle"></i> Нет закрытых позиций
         </div>
         {% endif %}
     </div>
 </div>
 
-<!-- Последние транзакции -->
-<div class="card">
-    <div class="card-header">
-        <h5><i class="fas fa-history"></i> Последние транзакции</h5>
+<!-- Модальное окно с историей транзакций и доходностью актива -->
+<div class="modal fade" id="transactionsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title" id="modalTitle">
+                    <i class="fas fa-history"></i> История транзакций
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <!-- Краткая статистика по активу -->
+                <div class="row mb-3" id="assetStats" style="display: none;">
+                    <div class="col-md-4">
+                        <div class="card bg-light">
+                            <div class="card-body text-center">
+                                <h6>Общая прибыль</h6>
+                                <h4 id="assetTotalPnl" class="profit-positive">$0.00</h4>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card bg-light">
+                            <div class="card-body text-center">
+                                <h6>Доходность</h6>
+                                <h4 id="assetReturn" class="profit-positive">0%</h4>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card bg-light">
+                            <div class="card-body text-center">
+                                <h6>Всего сделок</h6>
+                                <h4 id="assetTotalTrades">0</h4>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Таблица транзакций -->
+                <div class="table-responsive">
+                    <table class="table table-striped table-sm">
+                        <thead>
+                            <tr>
+                                <th>Дата</th>
+                                <th>Тип</th>
+                                <th>Количество</th>
+                                <th>Цена</th>
+                                <th>Комиссия</th>
+                                <th>Сумма</th>
+                                <th>Брокер</th>
+                                <th>Биржа</th>
+                            </tr>
+                        </thead>
+                        <tbody id="transactionsList">
+                            <tr><td colspan="8" class="text-center">Загрузка...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
+            </div>
+        </div>
     </div>
-    <div class="card-body">
-        <div class="table-responsive">
-            <table class="table table-sm">
-                <thead>
-                    <tr>
-                        <th>Дата</th>
-                        <th>Тип</th>
-                        <th>Актив</th>
-                        <th>Количество</th>
-                        <th>Цена</th>
-                        <th>Сумма</th>
-                    </tr>
-                </thead>
-                <tbody id="recent-transactions">
-                    <tr><td colspan="6" class="text-center">Загрузка...</td></tr>
-                </tbody>
-            </table>
+</div>
+
+<!-- Модальное окно для редактирования транзакции -->
+<div class="modal fade" id="editTransactionModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-warning">
+                <h5 class="modal-title">
+                    <i class="fas fa-edit"></i> Редактировать транзакцию
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="editTransactionForm">
+                <div class="modal-body">
+                    <input type="hidden" id="edit_transaction_id" name="transaction_id">
+                    <input type="hidden" id="edit_portfolio_id" name="portfolio_id" value="{{ portfolio.id }}">
+                    
+                    <div class="mb-3">
+                        <label for="edit_tx_type" class="form-label">Тип операции</label>
+                        <select class="form-control" id="edit_tx_type" name="tx_type" required>
+                            <option value="buy">Покупка</option>
+                            <option value="sell">Продажа</option>
+                        </select>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="edit_quantity" class="form-label">Количество</label>
+                                <input type="number" step="any" class="form-control" id="edit_quantity" name="quantity" required>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="edit_price" class="form-label">Цена</label>
+                                <input type="number" step="any" class="form-control" id="edit_price" name="price" required>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="edit_fee" class="form-label">Комиссия</label>
+                        <input type="number" step="any" class="form-control" id="edit_fee" name="fee">
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="edit_tx_date" class="form-label">Дата</label>
+                        <input type="datetime-local" class="form-control" id="edit_tx_date" name="tx_date" required>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                    <button type="submit" class="btn btn-primary">Сохранить</button>
+                </div>
+            </form>
         </div>
     </div>
 </div>
@@ -142,51 +324,147 @@
 
 {% block scripts %}
 <script>
-async function loadTransactions() {
-    const token = document.cookie.replace(/(?:(?:^|.*;\s*)access_token\s*\=\s*([^;]*).*$)|^.*$/, "$1");
-    
-    const response = await fetch(`/api/transactions/portfolio/{{ portfolio.id }}`, {
-        headers: {
-            'Authorization': `Bearer ${token}`
+// Функция получения токена
+function getAccessToken() {
+    const cookies = document.cookie.split(';');
+    for (let i = 0; i < cookies.length; i++) {
+        let cookie = cookies[i].trim();
+        if (cookie.startsWith('access_token=')) {
+            return cookie.substring('access_token='.length);
         }
-    });
+    }
+    return localStorage.getItem('access_token');
+}
+
+// Загрузка истории транзакций актива
+async function showTransactions(assetId, ticker) {
+    const token = getAccessToken();
+    const portfolioId = {{ portfolio.id }};
     
-    if (response.ok) {
+    document.getElementById('modalTitle').innerHTML = `<i class="fas fa-history"></i> История транзакций: ${ticker}`;
+    document.getElementById('transactionsList').innerHTML = '<tr><td colspan="8" class="text-center">Загрузка...<td></tr>';
+    
+    const modal = new bootstrap.Modal(document.getElementById('transactionsModal'));
+    modal.show();
+    
+    try {
+        // Получаем транзакции
+        const response = await fetch(`/api/transactions/portfolio/${portfolioId}`, {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+        
         const transactions = await response.json();
-        const tbody = document.getElementById('recent-transactions');
-        if (transactions.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="6" class="text-center">Нет транзакций</td></tr>';
+        const assetTransactions = transactions.filter(t => t.asset_id === assetId);
+        
+        // Рассчитываем статистику по активу
+        let totalInvested = 0;
+        let totalReturned = 0;
+        let totalProfit = 0;
+        
+        for (const tx of assetTransactions) {
+            const amount = tx.quantity * tx.price;
+            const totalAmount = amount + tx.fee;
+            
+            if (tx.tx_type === 'buy') {
+                totalInvested += totalAmount;
+            } else if (tx.tx_type === 'sell') {
+                totalReturned += amount - tx.fee;
+            }
+        }
+        
+        totalProfit = totalReturned - totalInvested;
+        const returnPercentage = totalInvested > 0 ? (totalProfit / totalInvested * 100) : 0;
+        
+        // Обновляем статистику
+        document.getElementById('assetStats').style.display = 'flex';
+        const pnlElement = document.getElementById('assetTotalPnl');
+        pnlElement.textContent = `$${totalProfit.toFixed(2)}`;
+        pnlElement.className = totalProfit >= 0 ? 'profit-positive' : 'profit-negative';
+        
+        const returnElement = document.getElementById('assetReturn');
+        returnElement.textContent = `${returnPercentage.toFixed(2)}%`;
+        returnElement.className = returnPercentage >= 0 ? 'profit-positive' : 'profit-negative';
+        
+        document.getElementById('assetTotalTrades').textContent = assetTransactions.length;
+        
+        // Отображаем транзакции
+        if (assetTransactions.length === 0) {
+            document.getElementById('transactionsList').innerHTML = '<tr><td colspan="8" class="text-center">Нет транзакций<td></tr>';
         } else {
-            tbody.innerHTML = transactions.slice(0, 10).map(t => `
+            document.getElementById('transactionsList').innerHTML = assetTransactions.map(tx => `
                 <tr>
-                    <td>${new Date(t.tx_date).toLocaleDateString()}</td>
-                    <td><span class="badge bg-${t.tx_type === 'buy' ? 'success' : t.tx_type === 'sell' ? 'danger' : 'info'}">${t.tx_type}</span></td>
-                    <td>${t.asset_ticker || 'Cash'}</td>
-                    <td>${t.quantity}</td>
-                    <td>$${t.price}</td>
-                    <td>$${(t.quantity * t.price).toFixed(2)}</td>
+                    <td>${new Date(tx.tx_date).toLocaleDateString()}</td>
+                    <td>
+                        <span class="badge bg-${tx.tx_type === 'buy' ? 'success' : 'danger'}">
+                            ${tx.tx_type === 'buy' ? 'Покупка' : 'Продажа'}
+                        </span>
+                    </td>
+                    <td>${tx.quantity}</td>
+                    <td>$${tx.price.toFixed(2)}</td>
+                    <td>$${tx.fee.toFixed(2)}</td>
+                    <td>$${(tx.quantity * tx.price).toFixed(2)}</td>
+                    <td>${tx.broker || '-'}</td>
+                    <td>${tx.exchange || '-'}</td>
                 </tr>
             `).join('');
         }
+        
+    } catch (error) {
+        console.error('Error loading transactions:', error);
+        document.getElementById('transactionsList').innerHTML = '<tr><td colspan="8" class="text-danger">Ошибка загрузки<td></tr>';
     }
 }
 
-loadTransactions();
-</script>
-<script>
+// Обновление цен
 function refreshPrices() {
     if (confirm('Обновить цены? Это может занять несколько секунд.')) {
-        fetch('/admin/update-prices', {
-            method: 'GET'
-        }).then(response => {
-            if (response.ok) {
+        const btn = event.target;
+        const originalHtml = btn.innerHTML;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Обновление...';
+        btn.disabled = true;
+        
+        fetch('/admin/update-prices')
+            .then(response => response.json())
+            .then(data => {
                 window.location.reload();
-            } else {
+            })
+            .catch(error => {
                 alert('Ошибка при обновлении цен');
-            }
-        });
+                btn.innerHTML = originalHtml;
+                btn.disabled = false;
+            });
     }
 }
-</script>
 
+// Экспорт в CSV
+function exportToCSV() {
+    const rows = document.querySelectorAll('#activePositionsTable tbody tr');
+    let csv = 'Тикер,Количество,Ср.цена,Текущая цена,Стоимость,P&L,P&L%\n';
+    
+    rows.forEach(row => {
+        const cells = row.querySelectorAll('td');
+        if (cells.length) {
+            const ticker = cells[0].innerText;
+            const quantity = cells[2].innerText;
+            const avgPrice = cells[3].innerText;
+            const currentPrice = cells[4].innerText;
+            const value = cells[5].innerText;
+            const pnl = cells[6].innerText;
+            const pnlPct = cells[7].innerText;
+            
+            csv += `${ticker},${quantity},${avgPrice},${currentPrice},${value},${pnl},${pnlPct}\n`;
+        }
+    });
+    
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${document.title}_export.csv`;
+    a.click();
+    window.URL.revokeObjectURL(url);
+}
+</script>
 {% endblock %}

@@ -1,5 +1,6 @@
 # app/routes.py
-from flask import render_template, request, flash, redirect, make_response, url_for, session
+from flask import jsonify, render_template, request, flash, redirect, make_response, url_for, session
+from flask_jwt_extended import get_jwt_identity, jwt_required
 from app.extensions import db
 from app.models.broker import Broker
 from app.models.exchange import Exchange
@@ -8,6 +9,7 @@ from app.models.user import User
 from app.models.portfolio import Portfolio
 from app.models.asset import Asset
 from app.models.transaction import Transaction
+from app.models.closed_positions import ClosedPosition
 
 from app.services.price_cache_service import price_cache_service
 from app.services.pricing_service import PricingService
@@ -189,36 +191,111 @@ def register_routes(app):
         
         return render_template('portfolios/create.html', current_user=current_user)
     
+   # В app/routes.py обновите portfolios_detail_html с проверками
+
     @app.route('/portfolios/<int:portfolio_id>')
     @login_required
     def portfolios_detail_html(portfolio_id):
         current_user = get_current_user()
         portfolio = Portfolio.query.filter_by(id=portfolio_id, user_id=current_user.id).first_or_404()
         
-        # Используем кэш из БД
-        from app.services.analytics_service import AnalyticsService
-        summary = AnalyticsService.get_portfolio_summary(portfolio_id, use_cache=True)
-        
-        # Получаем информацию по позициям
+        # Получаем текущие позиции
         positions = portfolio.positions.all()
-        portfolio_data = portfolio.to_dict()
-        portfolio_data.update(summary)
-        portfolio_data['positions'] = summary['positions']
         
-        # Добавляем информацию о времени последнего обновления цен
-        cache_stats = price_cache_service.get_cache_stats()
-        portfolio_data['last_price_update'] = None
+        # Получаем закрытые позиции
+        closed_positions = ClosedPosition.query.filter_by(portfolio_id=portfolio_id).all()
         
+        # Получаем цены для текущих позиций
+        tickers = [p.asset.ticker for p in positions if p.asset]
+        from app.services.price_cache_service import price_cache_service
+        current_prices = price_cache_service.get_current_prices(tickers)
+        
+        # Формируем данные для текущих позиций
+        positions_data = []
+        total_value = 0
+        total_cost = 0
+        
+        for pos in positions:
+            if not pos.asset:
+                continue
+                
+            ticker = pos.asset.ticker
+            current_price = current_prices.get(ticker, 0)
+            current_value = float(pos.quantity) * current_price
+            cost = float(pos.quantity) * float(pos.avg_price)
+            unrealized_pnl = current_value - cost
+            unrealized_pnl_pct = (unrealized_pnl / cost * 100) if cost > 0 else 0
+            
+            positions_data.append({
+                'asset_id': pos.asset_id,
+                'ticker': ticker,
+                'name': pos.asset.name,
+                'asset_type': pos.asset.asset_type,
+                'quantity': float(pos.quantity),
+                'avg_price': float(pos.avg_price),
+                'current_price': current_price,
+                'current_value': current_value,
+                'cost': cost,
+                'unrealized_pnl': unrealized_pnl,
+                'unrealized_pnl_pct': unrealized_pnl_pct
+            })
+            
+            total_value += current_value
+            total_cost += cost
+        
+        # Формируем данные для закрытых позиций с безопасной проверкой
+        closed_positions_data = []
+        for closed in closed_positions:
+            # Безопасно получаем данные актива
+            asset = closed.asset
+            ticker = asset.ticker if asset else 'Unknown'
+            name = asset.name if asset else 'Unknown'
+            asset_type = asset.asset_type if asset else 'Unknown'
+            
+            closed_positions_data.append({
+                'asset_id': closed.asset_id,
+                'ticker': ticker,
+                'name': name,
+                'asset_type': asset_type,
+                'total_quantity': float(closed.total_quantity),
+                'avg_buy_price': float(closed.total_buy_cost / closed.total_quantity) if closed.total_quantity > 0 else 0,
+                'realized_pnl': float(closed.realized_pnl),
+                'return_percentage': float(closed.return_percentage),
+                'first_buy_date': closed.first_buy_date.strftime('%Y-%m-%d') if closed.first_buy_date else '-',
+                'last_sell_date': closed.last_sell_date.strftime('%Y-%m-%d') if closed.last_sell_date else '-'
+            })
+        
+        total_unrealized_pnl = total_value - total_cost
+        total_return_pct = (total_unrealized_pnl / total_cost * 100) if total_cost > 0 else 0
+        
+        # Получаем время последнего обновления цен
+        last_price_update = None
         if positions:
-            first_ticker = positions[0].asset.ticker
-            cache_entry = PriceCache.query.filter_by(ticker=first_ticker).first()
-            if cache_entry:
-                portfolio_data['last_price_update'] = cache_entry.last_update.strftime('%Y-%m-%d %H:%M:%S')
+            first_asset = positions[0].asset
+            if first_asset:
+                from app.models.price_cache import PriceCache
+                cache_entry = PriceCache.query.filter_by(asset_id=first_asset.id).first()
+                if cache_entry:
+                    last_price_update = cache_entry.last_update.strftime('%Y-%m-%d %H:%M:%S')
+        
+        portfolio_data = {
+            'id': portfolio.id,
+            'name': portfolio.name,
+            'currency': portfolio.currency,
+            'created_at': portfolio.created_at,
+            'total_value': total_value,
+            'total_cost': total_cost,
+            'total_unrealized_pnl': total_unrealized_pnl,
+            'total_return_pct': total_return_pct,
+            'positions': positions_data,
+            'closed_positions': closed_positions_data,
+            'last_price_update': last_price_update
+        }
         
         return render_template('portfolios/detail.html', 
                             portfolio=portfolio_data, 
                             current_user=current_user)
-    
+
     @app.route('/portfolios/<int:portfolio_id>/edit', methods=['GET', 'POST'])
     @login_required
     def portfolio_edit_html(portfolio_id):
@@ -271,6 +348,26 @@ def register_routes(app):
                             exchanges=exchanges,
                             current_user=current_user)
     
+    @app.route('/api/transactions/<int:transaction_id>', methods=['GET'])
+    @jwt_required()
+    def get_transaction(transaction_id):
+        """Получение данных одной транзакции для API"""
+        user_id = get_jwt_identity()
+        if isinstance(user_id, str):
+            user_id = int(user_id)
+        
+        transaction = Transaction.query.get_or_404(transaction_id)
+        
+        if transaction.portfolio.user_id != user_id:
+            return jsonify({'error': 'Access denied'}), 403
+        
+        # Добавляем название биржи и брокера
+        result = transaction.to_dict()
+        result['exchange_name'] = transaction.exchange_ref.name if transaction.exchange_ref else None
+        result['broker_name'] = transaction.broker_ref.name if transaction.broker_ref else None
+        
+        return jsonify(result), 200
+    
     @app.route('/transactions/<int:transaction_id>/edit', methods=['GET', 'POST'])
     @login_required
     def transaction_edit_html(transaction_id):
@@ -283,6 +380,15 @@ def register_routes(app):
             flash('Доступ запрещен!', 'danger')
             return redirect(url_for('portfolios_list'))
         
+        # Получаем список всех активов для выпадающего списка
+        assets = Asset.query.order_by(Asset.ticker).all()
+        
+        # Получаем список брокеров
+        brokers = Broker.query.filter_by(is_active=True).order_by(Broker.name).all()
+        
+        # Получаем список бирж
+        exchanges = Exchange.query.filter_by(is_active=True).order_by(Exchange.name).all()
+        
         if request.method == 'POST':
             # Обновляем транзакцию
             transaction.tx_type = request.form.get('tx_type')
@@ -291,6 +397,23 @@ def register_routes(app):
             transaction.fee = float(request.form.get('fee', 0))
             transaction.tx_currency = request.form.get('tx_currency')
             transaction.tx_date = datetime.strptime(request.form.get('tx_date'), '%Y-%m-%dT%H:%M')
+            transaction.broker_id = request.form.get('broker_id') or None
+            transaction.notes = request.form.get('notes')
+            
+            # Обновляем биржу
+            exchange_name = request.form.get('exchange')
+            if exchange_name:
+                exchange = Exchange.query.filter_by(name=exchange_name).first()
+                transaction.exchange_id = exchange.id if exchange else None
+            else:
+                transaction.exchange_id = None
+            
+            # Обновляем актив
+            asset_id = request.form.get('asset_id')
+            if asset_id:
+                transaction.asset_id = int(asset_id)
+            else:
+                transaction.asset_id = None
             
             db.session.commit()
             
@@ -301,11 +424,15 @@ def register_routes(app):
             flash('Транзакция успешно обновлена!', 'success')
             return redirect(url_for('portfolios_detail_html', portfolio_id=transaction.portfolio_id))
         
+        # Для GET запроса - передаем все необходимые данные в шаблон
         return render_template('transactions/edit.html', 
-                             transaction=transaction, 
-                             portfolio_id=transaction.portfolio_id,
-                             current_user=current_user)
-    
+                            transaction=transaction,
+                            portfolio_id=transaction.portfolio_id,
+                            assets=assets,
+                            brokers=brokers,
+                            exchanges=exchanges,
+                            current_user=current_user)
+
     @app.route('/transactions/<int:transaction_id>/delete', methods=['POST'])
     @login_required
     def transaction_delete_html(transaction_id):

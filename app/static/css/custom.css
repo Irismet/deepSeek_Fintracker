@@ -51,3 +51,45 @@
     background-color: #17a2b8;
     color: white;
 }
+
+/* Дополнительные стили для портфеля */
+.position-row {
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.position-row:hover {
+    background-color: #f8f9fa;
+}
+
+.table-responsive {
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.table thead th {
+    border-bottom: 2px solid #dee2e6;
+    font-weight: 600;
+}
+
+.modal-lg {
+    max-width: 1000px;
+}
+
+.profit-positive {
+    color: #28a745;
+    font-weight: bold;
+}
+
+.profit-negative {
+    color: #dc3545;
+    font-weight: bold;
+}
+
+.asset-stats-card {
+    transition: transform 0.2s;
+}
+
+.asset-stats-card:hover {
+    transform: translateY(-3px);
+}

@@ -1,4 +1,6 @@
 # app/api/transactions.py
+from decimal import Decimal
+
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from app.extensions import db
@@ -128,3 +130,59 @@ def get_portfolio_transactions(portfolio_id):
         .all()
     
     return jsonify([t.to_dict() for t in transactions]), 200
+
+@transactions_bp.route('/transactions/<int:transaction_id>', methods=['PUT'])
+@jwt_required()
+def update_transaction_api(transaction_id):
+    """API обновление транзакции"""
+    try:
+        user_id = get_jwt_identity()
+        if isinstance(user_id, str):
+            user_id = int(user_id)
+        
+        transaction = Transaction.query.get_or_404(transaction_id)
+        
+        if transaction.portfolio.user_id != user_id:
+            return jsonify({'error': 'Access denied'}), 403
+        
+        data = request.get_json()
+        
+        # Обновляем поля
+        if 'tx_type' in data:
+            transaction.tx_type = data['tx_type']
+        if 'quantity' in data:
+            transaction.quantity = Decimal(str(data['quantity']))
+        if 'price' in data:
+            transaction.price = Decimal(str(data['price']))
+        if 'fee' in data:
+            transaction.fee = Decimal(str(data.get('fee', 0)))
+        if 'tx_currency' in data:
+            transaction.tx_currency = data['tx_currency']
+        if 'tx_date' in data:
+            transaction.tx_date = datetime.fromisoformat(data['tx_date'].replace('Z', '+00:00'))
+        if 'broker_id' in data:
+            transaction.broker_id = data.get('broker_id')
+        if 'exchange' in data and data['exchange']:
+            exchange = Exchange.query.filter_by(name=data['exchange']).first()
+            transaction.exchange_id = exchange.id if exchange else None
+        else:
+            transaction.exchange_id = None
+        if 'notes' in data:
+            transaction.notes = data.get('notes')
+        if 'asset_id' in data:
+            transaction.asset_id = data['asset_id'] if data['asset_id'] else None
+        
+        db.session.commit()
+        
+        # Пересчитываем позиции портфеля
+        from app.services.position_service import PositionService
+        PositionService.recalc_portfolio_positions(transaction.portfolio_id)
+        
+        return jsonify(transaction.to_dict()), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error updating transaction: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
