@@ -62,9 +62,11 @@ class PositionService:
         
         return position
     
+    # app/services/position_service.py - обновите метод _recalc_closed_position
+
     @staticmethod
     def _recalc_closed_position(portfolio_id, asset_id):
-        """Полный пересчет закрытой позиции для конкретного актива на основе всех транзакций"""
+        """Полный пересчет закрытой позиции для конкретного актива с учетом дивидендов"""
         
         # Получаем все buy и sell транзакции по этому активу
         buys = Transaction.query.filter_by(
@@ -79,6 +81,13 @@ class PositionService:
             tx_type='sell'
         ).order_by(Transaction.tx_date).all()
         
+        # Получаем все дивиденды по этому активу
+        dividends = Transaction.query.filter_by(
+            portfolio_id=portfolio_id,
+            asset_id=asset_id,
+            tx_type='dividend'
+        ).all()
+        
         # Если нет покупок - удаляем закрытую позицию если есть
         if not buys:
             ClosedPosition.query.filter_by(
@@ -92,6 +101,7 @@ class PositionService:
         total_quantity = sum(b.quantity for b in buys)
         total_buy_cost = sum(b.quantity * b.price + b.fee for b in buys)
         total_sold_quantity = sum(s.quantity for s in sells)
+        total_dividends = sum(d.quantity * d.price - d.fee for d in dividends)
         
         # Если ничего не продано - удаляем закрытую позицию
         if total_sold_quantity == 0:
@@ -154,6 +164,12 @@ class PositionService:
         if total_cost_basis > 0:
             return_percentage = (realized_pnl / total_cost_basis) * 100
         
+        # Доходность с учетом дивидендов
+        total_pnl = realized_pnl + total_dividends
+        total_return_percentage = Decimal('0')
+        if total_cost_basis > 0:
+            total_return_percentage = (total_pnl / total_cost_basis) * 100
+        
         # Получаем даты
         first_buy_date = buys[0].tx_date if buys else datetime.utcnow()
         last_sell_date = sells[-1].tx_date if sells else datetime.utcnow()
@@ -170,8 +186,10 @@ class PositionService:
             closed_pos.total_buy_cost = total_buy_cost
             closed_pos.total_sold_quantity = total_sold_quantity
             closed_pos.total_sell_revenue = total_sell_revenue
+            closed_pos.total_dividends = total_dividends
             closed_pos.realized_pnl = realized_pnl
             closed_pos.return_percentage = return_percentage
+            closed_pos.total_return_percentage = total_return_percentage
             closed_pos.first_buy_date = first_buy_date
             closed_pos.last_sell_date = last_sell_date
         else:
@@ -183,15 +201,19 @@ class PositionService:
                 total_buy_cost=total_buy_cost,
                 total_sold_quantity=total_sold_quantity,
                 total_sell_revenue=total_sell_revenue,
+                total_dividends=total_dividends,
                 realized_pnl=realized_pnl,
                 return_percentage=return_percentage,
+                total_return_percentage=total_return_percentage,
                 first_buy_date=first_buy_date,
                 last_sell_date=last_sell_date
             )
             db.session.add(closed_pos)
         
         db.session.commit()
-        logger.info(f"Closed position for asset {asset_id}: sold {total_sold_quantity}/{total_quantity}, PnL={realized_pnl}, Return={return_percentage}%")
+        logger.info(f"Closed position for asset {asset_id}: sold {total_sold_quantity}/{total_quantity}, "
+                    f"PnL={realized_pnl}, Dividends={total_dividends}, Total PnL={total_pnl}, "
+                    f"Return={return_percentage}%, Total Return={total_return_percentage}%")
     
     @staticmethod
     def recalc_portfolio_positions(portfolio_id):

@@ -45,13 +45,34 @@
                     <div class="mb-3">
                         <label for="currency" class="form-label">Валюта <span class="text-danger">*</span></label>
                         <select class="form-select" id="currency" name="currency" required>
+                            <option value="KZT">KZT - Казахстанский тенге</option>
                             <option value="USD">USD - Доллар США</option>
                             <option value="EUR">EUR - Евро</option>
                             <option value="RUB">RUB - Российский рубль</option>
-                            <option value="GBP">GBP - Британский фунт</option>
                             <option value="BTC">BTC - Bitcoin</option>
                             <option value="ETH">ETH - Ethereum</option>
                         </select>
+                    </div>
+                    <!-- После поля currency добавьте -->
+                    <div class="mb-3" id="bondFields" style="display: none;">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <label for="face_value" class="form-label">Номинал облигации</label>
+                                <input type="number" step="any" class="form-control" id="face_value" name="face_value" 
+                                    placeholder="Например: 1000">
+                                <div class="form-text">Номинальная стоимость облигации</div>
+                            </div>
+                            <div class="col-md-6">
+                                <label for="coupon_rate" class="form-label">Купонная ставка (%)</label>
+                                <input type="number" step="any" class="form-control" id="coupon_rate" name="coupon_rate" 
+                                    placeholder="Например: 5.5">
+                                <div class="form-text">Годовая купонная ставка</div>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label for="maturity_date" class="form-label">Дата погашения</label>
+                            <input type="date" class="form-control" id="maturity_date" name="maturity_date">
+                        </div>
                     </div>
                     
                     <div class="d-flex justify-content-between">
@@ -67,4 +88,16 @@
         </div>
     </div>
 </div>
+
+<script>
+// Показываем/скрываем поля для облигаций при выборе типа
+document.getElementById('asset_type').addEventListener('change', function() {
+    const bondFields = document.getElementById('bondFields');
+    if (this.value === 'bond') {
+        bondFields.style.display = 'block';
+    } else {
+        bondFields.style.display = 'none';
+    }
+});
+</script>
 {% endblock %}

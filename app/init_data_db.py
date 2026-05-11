@@ -1,5 +1,9 @@
 # app/init_data.py
+from datetime import date
+from decimal import Decimal
+
 from app import db
+from app.models.asset import Asset
 from app.models.broker import Broker
 from app.models.exchange import Exchange
 from app.models.asset_class import AssetClass
@@ -72,3 +76,48 @@ def init_reference_data():
     
     db.session.commit()
     print("Reference data initialized successfully!")
+
+    # app/init_data.py - добавьте функцию для инициализации курсов валют
+
+def init_currency_rates():
+    """Инициализация базовых курсов валют"""
+    from app.models.currency_rate import CurrencyRate
+    
+    # Базовые курсы (примерные, нужно обновлять из реального API)
+    rates = [
+        ('USD', 'EUR', 0.92),
+        ('USD', 'GBP', 0.79),
+        ('USD', 'KZT', 464.0),
+        ('USD', 'RUB', 92.0),
+        ('EUR', 'USD', 1.09),
+        ('EUR', 'GBP', 0.86),
+        ('EUR', 'KZT', 489.0),
+        ('EUR', 'RUB', 100.0),
+        ('KZT', 'USD', 0.00215),
+        ('KZT', 'EUR', 0.00204),
+        ('RUB', 'USD', 0.0109),
+        ('RUB', 'EUR', 0.01),
+    ]
+    
+    today = date.today()
+    
+    for base, target, rate in rates:
+        existing = CurrencyRate.query.filter_by(
+            base_currency=base,
+            target_currency=target,
+            rate_date=today
+        ).first()
+        
+        if not existing:
+            currency_rate = CurrencyRate(
+                base_currency=base,
+                target_currency=target,
+                rate=Decimal(str(rate)),
+                rate_date=today,
+                source='manual'
+            )
+            db.session.add(currency_rate)
+    
+    db.session.commit()
+    print("Currency rates initialized")
+

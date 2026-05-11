@@ -9,6 +9,11 @@
             <div class="card-header">
                 <h4><i class="fas fa-edit"></i> Редактировать транзакцию</h4>
             </div>
+            <div>
+                <a href="{{ url_for('portfolios_detail_html', portfolio_id=portfolio_id) }}" class="btn btn-secondary">
+                    <i class="fas fa-arrow-left"></i> Вернуться к портфелю
+                </a>
+            </div>
             <div class="card-body">
                 <form id="transactionForm">
                     <input type="hidden" id="portfolio_id" name="portfolio_id" value="{{ portfolio_id }}">
@@ -91,7 +96,7 @@
                                 <select class="form-control" id="exchange" name="exchange">
                                     <option value="">Выберите биржу</option>
                                     {% for exchange in exchanges %}
-                                    <option value="{{ exchange.name }}" {% if transaction.exchange == exchange.name %}selected{% endif %}>
+                                    <option value="{{ exchange.name }}" {% if transaction.exchange_id == exchange.id %}selected{% endif %}>
                                         {{ exchange.name }} ({{ exchange.country }})
                                     </option>
                                     {% endfor %}

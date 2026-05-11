@@ -1,8 +1,11 @@
 # app/routes.py
+from decimal import Decimal
+
 from flask import jsonify, render_template, request, flash, redirect, make_response, url_for, session
 from flask_jwt_extended import get_jwt_identity, jwt_required
 from app.extensions import db
 from app.models.broker import Broker
+from app.models.currency_rate import CurrencyRate
 from app.models.exchange import Exchange
 from app.models.price_cache import PriceCache
 from app.models.user import User
@@ -11,14 +14,29 @@ from app.models.asset import Asset
 from app.models.transaction import Transaction
 from app.models.closed_positions import ClosedPosition
 
+from app.services.currency_service import CurrencyService
 from app.services.price_cache_service import price_cache_service
 from app.services.pricing_service import PricingService
 from app.services.analytics_service import AnalyticsService
 from functools import wraps
 from datetime import datetime
 import logging
+# app/routes.py - добавьте в начало файла
+from flask import session
 
-logging.basicConfig(level=logging.DEBUG)
+def set_current_portfolio(portfolio_id):
+    """Сохраняет ID текущего портфеля в сессии"""
+    session['current_portfolio_id'] = portfolio_id
+
+def get_current_portfolio_id():
+    """Получает ID текущего портфеля из сессии"""
+    return session.get('current_portfolio_id')
+
+def clear_current_portfolio():
+    """Очищает текущий портфель из сессии"""
+    session.pop('current_portfolio_id', None)
+
+#logging.basicConfig(level=logging.DEBUG)
 
 def get_token_from_request():
     """Получение токена из cookie или заголовка"""
@@ -164,13 +182,16 @@ def register_routes(app):
         flash('Вы вышли из системы', 'info')
         return response
     
-    # Portfolio routes
     @app.route('/portfolios')
     @login_required
     def portfolios_list():
+        """Список портфелей - очищаем текущий портфель"""
         current_user = get_current_user()
-        print(f"DEBUG: portfolios_list - user: {current_user.email if current_user else 'None'}")
         portfolios = Portfolio.query.filter_by(user_id=current_user.id).all()
+    
+        # Очищаем сохраненный портфель, так как мы на странице списка
+        clear_current_portfolio()
+        
         return render_template('portfolios/list.html', portfolios=portfolios, current_user=current_user)
     
     @app.route('/portfolios/create', methods=['GET', 'POST'])
@@ -191,7 +212,7 @@ def register_routes(app):
         
         return render_template('portfolios/create.html', current_user=current_user)
     
-   # В app/routes.py обновите portfolios_detail_html с проверками
+   # В app/routes.py обновите portfolios_detail_html
 
     @app.route('/portfolios/<int:portfolio_id>')
     @login_required
@@ -199,77 +220,62 @@ def register_routes(app):
         current_user = get_current_user()
         portfolio = Portfolio.query.filter_by(id=portfolio_id, user_id=current_user.id).first_or_404()
         
-        # Получаем текущие позиции
-        positions = portfolio.positions.all()
+        # Сохраняем текущий портфель в сессии
+        set_current_portfolio(portfolio_id)
+        # Получаем валюту портфеля
+        portfolio_currency = portfolio.currency
+        
+        # Получаем аналитику с учетом валюты
+        from app.services.analytics_service import AnalyticsService
+        summary = AnalyticsService.get_portfolio_summary(portfolio_id, portfolio_currency, use_cache=True)
         
         # Получаем закрытые позиции
+        from app.models.closed_positions import ClosedPosition
         closed_positions = ClosedPosition.query.filter_by(portfolio_id=portfolio_id).all()
         
-        # Получаем цены для текущих позиций
-        tickers = [p.asset.ticker for p in positions if p.asset]
-        from app.services.price_cache_service import price_cache_service
-        current_prices = price_cache_service.get_current_prices(tickers)
-        
-        # Формируем данные для текущих позиций
-        positions_data = []
-        total_value = 0
-        total_cost = 0
-        
-        for pos in positions:
-            if not pos.asset:
-                continue
-                
-            ticker = pos.asset.ticker
-            current_price = current_prices.get(ticker, 0)
-            current_value = float(pos.quantity) * current_price
-            cost = float(pos.quantity) * float(pos.avg_price)
-            unrealized_pnl = current_value - cost
-            unrealized_pnl_pct = (unrealized_pnl / cost * 100) if cost > 0 else 0
-            
-            positions_data.append({
-                'asset_id': pos.asset_id,
-                'ticker': ticker,
-                'name': pos.asset.name,
-                'asset_type': pos.asset.asset_type,
-                'quantity': float(pos.quantity),
-                'avg_price': float(pos.avg_price),
-                'current_price': current_price,
-                'current_value': current_value,
-                'cost': cost,
-                'unrealized_pnl': unrealized_pnl,
-                'unrealized_pnl_pct': unrealized_pnl_pct
-            })
-            
-            total_value += current_value
-            total_cost += cost
-        
-        # Формируем данные для закрытых позиций с безопасной проверкой
+        # Формируем данные для закрытых позиций
         closed_positions_data = []
         for closed in closed_positions:
-            # Безопасно получаем данные актива
             asset = closed.asset
             ticker = asset.ticker if asset else 'Unknown'
             name = asset.name if asset else 'Unknown'
-            asset_type = asset.asset_type if asset else 'Unknown'
+            asset_currency = asset.currency if asset else 'USD'
             
+            # Конвертируем PnL в валюту портфеля
+            realized_pnl_converted = CurrencyService.convert(
+                closed.realized_pnl, 
+                asset_currency, 
+                portfolio_currency
+            )
+            
+            dividends_converted = CurrencyService.convert(
+            closed.total_dividends, 
+            asset_currency, 
+            portfolio_currency
+            )
+            
+            total_pnl_converted = realized_pnl_converted + dividends_converted
+
             closed_positions_data.append({
                 'asset_id': closed.asset_id,
                 'ticker': ticker,
                 'name': name,
-                'asset_type': asset_type,
+                'asset_type': asset.asset_type if asset else 'Unknown',
                 'total_quantity': float(closed.total_quantity),
                 'avg_buy_price': float(closed.total_buy_cost / closed.total_quantity) if closed.total_quantity > 0 else 0,
-                'realized_pnl': float(closed.realized_pnl),
+                'avg_buy_currency': asset_currency,
+                'realized_pnl': float(realized_pnl_converted),
+                'dividends': float(dividends_converted),
+                'total_pnl': float(total_pnl_converted),
                 'return_percentage': float(closed.return_percentage),
+                'total_return_percentage': float(closed.total_return_percentage),
                 'first_buy_date': closed.first_buy_date.strftime('%Y-%m-%d') if closed.first_buy_date else '-',
                 'last_sell_date': closed.last_sell_date.strftime('%Y-%m-%d') if closed.last_sell_date else '-'
             })
         
-        total_unrealized_pnl = total_value - total_cost
-        total_return_pct = (total_unrealized_pnl / total_cost * 100) if total_cost > 0 else 0
-        
         # Получаем время последнего обновления цен
         last_price_update = None
+        positions = portfolio.positions.all()
         if positions:
             first_asset = positions[0].asset
             if first_asset:
@@ -278,16 +284,20 @@ def register_routes(app):
                 if cache_entry:
                     last_price_update = cache_entry.last_update.strftime('%Y-%m-%d %H:%M:%S')
         
+        # В portfolios_detail_html добавьте:
         portfolio_data = {
             'id': portfolio.id,
             'name': portfolio.name,
-            'currency': portfolio.currency,
+            'currency': portfolio_currency,
             'created_at': portfolio.created_at,
-            'total_value': total_value,
-            'total_cost': total_cost,
-            'total_unrealized_pnl': total_unrealized_pnl,
-            'total_return_pct': total_return_pct,
-            'positions': positions_data,
+            'total_value': summary['total_value'],
+            'total_cost': summary['total_cost'],
+            'total_dividends': summary['total_dividends'],
+            'total_realized_pnl': summary['total_realized_pnl'],
+            'total_unrealized_pnl': summary['total_unrealized_pnl'],
+            'total_pnl': summary['total_pnl'],
+            'total_return_pct': summary['total_return_pct'],
+            'positions': summary['positions'],
             'closed_positions': closed_positions_data,
             'last_price_update': last_price_update
         }
@@ -332,6 +342,10 @@ def register_routes(app):
         current_user = get_current_user()
         portfolio = Portfolio.query.filter_by(id=portfolio_id, user_id=current_user.id).first_or_404()
         
+        # Сохраняем портфель в сессии если передан явно
+        if portfolio_id:
+            set_current_portfolio(portfolio_id)
+    
         # Получаем список всех активов для выпадающего списка
         assets = Asset.query.order_by(Asset.ticker).all()
         
@@ -341,11 +355,15 @@ def register_routes(app):
         # Получаем список бирж
         exchanges = Exchange.query.filter_by(is_active=True).order_by(Exchange.name).all()
         
+        # Если передан asset_id в параметрах, выбираем его
+        pre_selected_asset_id = request.args.get('asset_id', type=int)
+        
         return render_template('transactions/create.html', 
                             portfolio_id=portfolio_id,
                             assets=assets,
                             brokers=brokers,
                             exchanges=exchanges,
+                            pre_selected_asset_id=pre_selected_asset_id,
                             current_user=current_user)
     
     @app.route('/api/transactions/<int:transaction_id>', methods=['GET'])
@@ -463,22 +481,40 @@ def register_routes(app):
     def assets_list():
         current_user = get_current_user()
         assets = Asset.query.all()
-        return render_template('assets/list.html', assets=assets, current_user=current_user)
+        
+        # Используем текущий портфель из сессии
+        portfolio_id = get_current_portfolio_id()
+        
+        # Если нет текущего портфеля, берем первый
+        if not portfolio_id:
+            first_portfolio = Portfolio.query.filter_by(user_id=current_user.id).first()
+            portfolio_id = first_portfolio.id if first_portfolio else None
+        
+        return render_template('assets/list.html', assets=assets, current_user=current_user, portfolio_id=portfolio_id)
     
     @app.route('/assets/create', methods=['GET', 'POST'])
     @login_required
     def asset_create_html():
-        """Создание нового актива"""
         current_user = get_current_user()
         
         if request.method == 'POST':
             ticker = request.form.get('ticker').upper()
-            isin = request.form.get('isin')
             name = request.form.get('name')
             asset_type = request.form.get('asset_type')
             currency = request.form.get('currency')
             
-            # Проверяем, существует ли уже актив
+            # Поля для облигаций
+            face_value = request.form.get('face_value') or None
+            coupon_rate = request.form.get('coupon_rate') or None
+            maturity_date = request.form.get('maturity_date') or None
+            
+            if face_value:
+                face_value = Decimal(face_value)
+            if coupon_rate:
+                coupon_rate = Decimal(coupon_rate)
+            if maturity_date:
+                maturity_date = datetime.strptime(maturity_date, '%Y-%m-%d').date()
+            
             existing = Asset.query.filter_by(ticker=ticker).first()
             if existing:
                 flash('Актив с таким тикером уже существует!', 'danger')
@@ -486,10 +522,12 @@ def register_routes(app):
             
             asset = Asset(
                 ticker=ticker,
-                isin=isin,
                 name=name,
                 asset_type=asset_type,
-                currency=currency
+                currency=currency,
+                face_value=face_value,
+                coupon_rate=coupon_rate,
+                maturity_date=maturity_date
             )
             
             db.session.add(asset)
@@ -507,6 +545,14 @@ def register_routes(app):
         current_user = get_current_user()
         asset = Asset.query.get_or_404(asset_id)
         
+        # Используем текущий портфель из сессии
+        portfolio_id = get_current_portfolio_id()
+    
+        # Если нет текущего портфеля, берем первый
+        if not portfolio_id:
+            first_portfolio = Portfolio.query.filter_by(user_id=current_user.id).first()
+            portfolio_id = first_portfolio.id if first_portfolio else None
+        
         # Получаем исторические цены
         from app.models.historical_price import HistoricalPrice
         prices = HistoricalPrice.query.filter_by(asset_id=asset_id)\
@@ -521,10 +567,11 @@ def register_routes(app):
             .all()
         
         return render_template('assets/detail.html', 
-                             asset=asset, 
-                             prices=prices,
-                             transactions=transactions,
-                             current_user=current_user)
+                            asset=asset, 
+                            prices=prices,
+                            transactions=transactions,
+                            portfolio_id=portfolio_id,
+                            current_user=current_user)
     
     @app.route('/assets/<int:asset_id>/edit', methods=['GET', 'POST'])
     @login_required
@@ -535,10 +582,30 @@ def register_routes(app):
         
         if request.method == 'POST':
             asset.ticker = request.form.get('ticker').upper()
-            asset.isin = request.form.get('isin')
+            asset.isin = request.form.get('isin') or None
             asset.name = request.form.get('name')
             asset.asset_type = request.form.get('asset_type')
             asset.currency = request.form.get('currency')
+            
+            # Поля для облигаций
+            face_value = request.form.get('face_value')
+            coupon_rate = request.form.get('coupon_rate')
+            maturity_date = request.form.get('maturity_date')
+            
+            if face_value and face_value.strip():
+                asset.face_value = Decimal(face_value)
+            else:
+                asset.face_value = None
+                
+            if coupon_rate and coupon_rate.strip():
+                asset.coupon_rate = Decimal(coupon_rate)
+            else:
+                asset.coupon_rate = None
+                
+            if maturity_date and maturity_date.strip():
+                asset.maturity_date = datetime.strptime(maturity_date, '%Y-%m-%d').date()
+            else:
+                asset.maturity_date = None
             
             db.session.commit()
             flash('Актив успешно обновлен!', 'success')
@@ -571,28 +638,57 @@ def register_routes(app):
         current_user = get_current_user()
         portfolios = Portfolio.query.filter_by(user_id=current_user.id).all()
         
+        # Получаем ID портфеля: из параметра URL или из сессии
+        selected_portfolio_id = request.args.get('portfolio_id', type=int)
+    
+        # Если нет в URL, берем из сессии
+        if not selected_portfolio_id:
+            selected_portfolio_id = get_current_portfolio_id()
+
+         # Получаем все портфели пользователя
+        all_portfolios = Portfolio.query.filter_by(user_id=current_user.id).all()
+        
+        # Если портфель не выбран, показываем все
+        if selected_portfolio_id:
+            selected_portfolio = Portfolio.query.filter_by(
+                id=selected_portfolio_id, 
+                user_id=current_user.id
+            ).first()
+            if not selected_portfolio:
+                selected_portfolio_id = None
+                selected_portfolio = None
+        else:
+            selected_portfolio = None
+        
         portfolio_summaries = []
         total_value_all = 0
         
         for portfolio in portfolios:
+            # Если выбран конкретный портфель, показываем только его
+            if selected_portfolio and portfolio.id != selected_portfolio.id:
+                continue
+                
             positions = portfolio.positions.all()
             tickers = [p.asset.ticker for p in positions if p.asset]
-            current_prices = PricingService.get_current_prices(tickers)
-            summary = AnalyticsService.get_portfolio_summary(portfolio.id, current_prices)
+            current_prices = price_cache_service.get_current_prices(tickers)
+            summary = AnalyticsService.get_portfolio_summary(portfolio.id, portfolio.currency, use_cache=True)
             
             portfolio_summaries.append({
                 'id': portfolio.id,
                 'name': portfolio.name,
+                'currency': portfolio.currency,
                 'value': summary['total_value'],
                 'pnl': summary['total_unrealized_pnl'],
-                'pnl_pct': summary['total_return_pct']
+                'pnl_pct': summary['total_return_pct'],
+                'created_at': portfolio.created_at.strftime('%Y-%m-%d') if portfolio.created_at else None
             })
             total_value_all += summary['total_value']
         
         return render_template('analytics/dashboard.html',
-                             portfolios=portfolio_summaries,
-                             total_value=total_value_all,
-                             current_user=current_user)
+                            portfolios=portfolio_summaries,
+                            total_value=total_value_all,
+                            selected_portfolio=selected_portfolio,
+                            current_user=current_user)
     
     # Debug route
     @app.route('/debug/cookie')
@@ -660,3 +756,22 @@ def register_routes(app):
             'formula': formula,
             'commission_percent': commission_percent
         })
+    
+    @app.route('/api/currency-rates')
+    @login_required
+    def get_currency_rates():
+        """API для получения курсов валют"""
+        rates = CurrencyRate.query.order_by(CurrencyRate.rate_date.desc()).limit(100).all()
+        return jsonify([r.to_dict() for r in rates])
+
+    @app.route('/api/currency-rates/update', methods=['POST'])
+    @login_required
+    def update_currency_rates():
+        """Обновление курсов валют (можно вызывать из фоновой задачи)"""
+        from app.services.currency_service import CurrencyService
+        
+        # Здесь можно добавить загрузку курсов из внешнего API
+        # Например, из Центробанка или Fixer.io
+        
+        CurrencyService.clear_cache()
+        return jsonify({'message': 'Currency rates cache cleared'})

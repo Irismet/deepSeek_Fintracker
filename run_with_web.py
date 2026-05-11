@@ -1,7 +1,7 @@
 # run_with_web.py
 import atexit
 
-from flask import flash, jsonify, redirect, request
+from flask import flash, jsonify, make_response, redirect, request
 from redis.background import BackgroundScheduler
 
 from app import create_app
@@ -296,6 +296,27 @@ def admin_recalc_portfolio(portfolio_id):
         logger.error(f"Recalc error: {e}")
     
     return redirect(url_for('portfolios_detail_html', portfolio_id=portfolio_id))
+
+# В run_with_web.py добавьте
+@app.route('/debug/kase/<ticker>')
+def debug_kase(ticker):
+    """Тестирование парсера KASE"""
+    from app.services.kase_parser import KaseParser
+    
+    price = KaseParser.get_price(ticker)
+    if price:
+        return jsonify({
+            'ticker': ticker,
+            'price': float(price),
+            'currency': 'KZT',
+            'source': 'KASE'
+        })
+    else:
+        return jsonify({
+            'ticker': ticker,
+            'error': 'Price not found',
+            'source': 'KASE'
+        }), 404
 
 
 if __name__ == '__main__':

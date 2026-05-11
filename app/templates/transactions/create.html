@@ -9,6 +9,11 @@
             <div class="card-header">
                 <h4><i class="fas fa-exchange-alt"></i> Добавить транзакцию</h4>
             </div>
+            <div>
+                <a href="{{ url_for('portfolios_detail_html', portfolio_id=portfolio_id) }}" class="btn btn-sm btn-secondary">
+                    <i class="fas fa-arrow-left"></i> Вернуться в портфель
+                </a>
+            </div>
             <div class="card-body">
                 <form id="transactionForm">
                     <input type="hidden" id="portfolio_id" name="portfolio_id" value="{{ portfolio_id }}">
@@ -27,13 +32,15 @@
                     
                     <div class="mb-3" id="asset_section">
                         <label for="asset_id" class="form-label">Актив</label>
+                        <!-- В create.html, в выпадающем списке активов -->
                         <select class="form-control" id="asset_id" name="asset_id">
                             <option value="">Выберите актив (или оставьте пустым для кэша)</option>
                             {% for asset in assets %}
                             <option value="{{ asset.id }}" 
                                     data-ticker="{{ asset.ticker }}" 
                                     data-currency="{{ asset.currency }}" 
-                                    data-exchange="{{ asset.exchange.name if asset.exchange else '' }}">
+                                    data-exchange="{{ asset.exchange.name if asset.exchange else '' }}"
+                                    {% if pre_selected_asset_id == asset.id %}selected{% endif %}>
                                 {{ asset.ticker }} - {{ asset.name }} 
                                 {% if asset.isin %}({{ asset.isin }}){% endif %}
                                 {% if asset.exchange %} [{{ asset.exchange.name }}]{% endif %}
@@ -98,11 +105,12 @@
                             <div class="mb-3">
                                 <label for="tx_currency" class="form-label">Валюта сделки</label>
                                 <select class="form-control" id="tx_currency" name="tx_currency">
+                                    <option value="KZT">KZT</option>
                                     <option value="USD">USD</option>
                                     <option value="EUR">EUR</option>
                                     <option value="RUB">RUB</option>
-                                    <option value="KZT">KZT</option>
                                     <option value="BTC">BTC</option>
+                                    <option value="BTC">ETH</option>
                                 </select>
                             </div>
                         </div>
@@ -417,7 +425,7 @@ document.getElementById('transactionForm').addEventListener('submit', async func
             
             if (response.ok) {
                 console.log('Transaction created successfully');
-                window.location.href = `/portfolios/${portfolioId}`;
+                window.location.href = `/portfolios/${formData.portfolio_id}`;
             } else {
                 console.error('Error response:', data);
                 alert('Ошибка: ' + (data.error || data.message || 'Неизвестная ошибка'));

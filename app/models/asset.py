@@ -1,5 +1,5 @@
-# app/models/asset.py
-from app import db
+# app/models/asset.py - добавьте новое поле
+from app.extensions import db
 
 class Asset(db.Model):
     __tablename__ = 'assets'
@@ -11,7 +11,12 @@ class Asset(db.Model):
     asset_type = db.Column(db.String(20), nullable=False)
     currency = db.Column(db.String(3), nullable=False)
     
-    # Новые поля
+    # Новое поле для облигаций
+    face_value = db.Column(db.Numeric(20, 2), nullable=True)  # Номинал облигации
+    coupon_rate = db.Column(db.Numeric(10, 4), nullable=True)  # Купонная ставка (%)
+    maturity_date = db.Column(db.Date, nullable=True)  # Дата погашения
+    
+    # Существующие поля
     asset_class_id = db.Column(db.BigInteger, db.ForeignKey('asset_classes.id'), nullable=True)
     sector_id = db.Column(db.BigInteger, db.ForeignKey('sectors.id'), nullable=True)
     exchange_id = db.Column(db.BigInteger, db.ForeignKey('exchanges.id'), nullable=True)
@@ -36,6 +41,9 @@ class Asset(db.Model):
             'name': self.name,
             'asset_type': self.asset_type,
             'currency': self.currency,
+            'face_value': float(self.face_value) if self.face_value else None,
+            'coupon_rate': float(self.coupon_rate) if self.coupon_rate else None,
+            'maturity_date': self.maturity_date.isoformat() if self.maturity_date else None,
             'asset_class': self.asset_class.name if self.asset_class else None,
             'sector': self.sector.name if self.sector else None,
             'exchange': self.exchange.name if self.exchange else None

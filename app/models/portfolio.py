@@ -13,6 +13,7 @@ class Portfolio(db.Model):
     # Relationships
     transactions = db.relationship('Transaction', backref='portfolio', lazy='dynamic', cascade='all, delete-orphan')
     positions = db.relationship('Position', backref='portfolio', lazy='dynamic', cascade='all, delete-orphan')
+    cash_flows = db.relationship('CashFlow', backref='portfolio', lazy='dynamic', cascade='all, delete-orphan')
     
     def to_dict(self, include_positions=False):
         data = {

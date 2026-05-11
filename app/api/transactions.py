@@ -186,3 +186,36 @@ def update_transaction_api(transaction_id):
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
+    
+
+@transactions_bp.route('/transactions/<int:transaction_id>', methods=['DELETE'])
+@jwt_required()
+def delete_transaction(transaction_id):
+    """Удаление транзакции"""
+    try:
+        user_id = get_jwt_identity()
+        if isinstance(user_id, str):
+            user_id = int(user_id)
+        
+        transaction = Transaction.query.get_or_404(transaction_id)
+        
+        # Проверяем права доступа
+        if transaction.portfolio.user_id != user_id:
+            return jsonify({'error': 'Access denied'}), 403
+        
+        portfolio_id = transaction.portfolio_id
+        
+        # Удаляем транзакцию
+        db.session.delete(transaction)
+        db.session.commit()
+        
+        # Пересчитываем позиции портфеля
+        from app.services.position_service import PositionService
+        PositionService.recalc_portfolio_positions(portfolio_id)
+        
+        return jsonify({'message': 'Transaction deleted successfully'}), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error deleting transaction: {e}")
+        return jsonify({'error': str(e)}), 500

@@ -1,11 +1,38 @@
-<!-- app/templates/analytics/dashboard.html -->
 {% extends "base.html" %}
 
 {% block title %}Аналитика портфеля{% endblock %}
 
 {% block content %}
-<h2><i class="fas fa-chart-pie"></i> Аналитика инвестиций</h2>
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="fas fa-chart-pie"></i> Аналитика инвестиций</h2>
+    <div>
+        <!-- Кнопка возврата в портфель если выбран конкретный -->
+        {% if selected_portfolio %}
+        <a href="{{ url_for('portfolios_detail_html', portfolio_id=selected_portfolio.id) }}" class="btn btn-primary">
+            <i class="fas fa-arrow-left"></i> Вернуться в портфель
+        </a>
+        {% else %}
+        <a href="{{ url_for('portfolios_list') }}" class="btn btn-secondary">
+            <i class="fas fa-folder-open"></i> К портфелям
+        </a>
+        {% endif %}
+    </div>
+</div>
 
+<!-- Показываем активный портфель если выбран -->
+{% if selected_portfolio %}
+<div class="alert alert-info d-flex justify-content-between align-items-center">
+    <div>
+        <strong>Текущий портфель:</strong> {{ selected_portfolio.name }}
+        ({{ selected_portfolio.currency }})
+    </div>
+    <a href="{{ url_for('portfolios_detail_html', portfolio_id=selected_portfolio.id) }}" class="btn btn-sm btn-primary">
+        <i class="fas fa-eye"></i> Просмотреть портфель
+    </a>
+</div>
+{% endif %}
+
+<!-- Остальной контент -->
 {% if portfolios %}
 <div class="row mb-4">
     <div class="col-md-4">
@@ -15,6 +42,37 @@
             <p>Общая стоимость всех портфелей</p>
         </div>
     </div>
+    <div class="col-md-4">
+        <div class="stat-card" style="background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);">
+            <i class="fas fa-chart-pie"></i>
+            <h3>{{ portfolios|length }}</h3>
+            <p>Активных портфелей</p>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="stat-card" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
+            <i class="fas fa-chart-line"></i>
+            <h3 id="avgReturn">-</h3>
+            <p>Средняя доходность</p>
+        </div>
+    </div>
+</div>
+
+<!-- Выбор портфеля -->
+<div class="card mb-4">
+    <div class="card-header">
+        <h5><i class="fas fa-filter"></i> Фильтр по портфелю</h5>
+    </div>
+    <div class="card-body">
+        <select class="form-select" id="portfolioFilter" onchange="filterPortfolio()">
+            <option value="all">Все портфели</option>
+            {% for portfolio in portfolios %}
+            <option value="{{ portfolio.id }}" {% if selected_portfolio and selected_portfolio.id == portfolio.id %}selected{% endif %}>
+                {{ portfolio.name }} ({{ portfolio.value|round(2) }} {{ selected_portfolio.currency if selected_portfolio else 'USD' }})
+            </option>
+            {% endfor %}
+        </select>
+    </div>
 </div>
 
 <div class="card">
@@ -23,32 +81,49 @@
     </div>
     <div class="card-body">
         <div class="table-responsive">
-            <table class="table table-striped">
+            <table class="table table-striped table-hover">
                 <thead>
                     <tr>
                         <th>Портфель</th>
+                        <th>Валюта</th>
                         <th>Стоимость</th>
                         <th>P&L</th>
                         <th>Доходность %</th>
+                        <th>Доля</th>
                         <th>Действия</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for portfolio in portfolios %}
                     <tr>
-                        <td><strong>{{ portfolio.name }}</strong></td>
-                        <td>${{ "%.2f"|format(portfolio.value) }}</td>
+                        <td>
+                            <strong>{{ portfolio.name }}</strong>
+                            <br>
+                            <small class="text-muted">Создан: {{ portfolio.created_at[:10] if portfolio.created_at else '-' }}</small>
+                         </n></td>
+                        <tr>{{ portfolio.currency }}</td>
+                        <td>{{ portfolio.currency }} {{ "%.2f"|format(portfolio.value) }}</td>
                         <td class="{{ 'profit-positive' if portfolio.pnl >= 0 else 'profit-negative' }}">
-                            ${{ "%.2f"|format(portfolio.pnl) }}
-                        </td>
+                            {{ portfolio.currency }} {{ "%.2f"|format(portfolio.pnl) }}
+                         </n></td>
                         <td class="{{ 'profit-positive' if portfolio.pnl_pct >= 0 else 'profit-negative' }}">
                             {{ "%.2f"|format(portfolio.pnl_pct) }}%
-                        </td>
+                         </n></td>
+                        <td>
+                            <div class="progress" style="height: 20px;">
+                                <div class="progress-bar bg-info" role="progressbar" 
+                                     style="width: {{ (portfolio.value / total_value * 100) if total_value > 0 else 0 }}%"
+                                     aria-valuenow="{{ (portfolio.value / total_value * 100) if total_value > 0 else 0 }}" 
+                                     aria-valuemin="0" aria-valuemax="100">
+                                    {{ "%.1f"|format((portfolio.value / total_value * 100) if total_value > 0 else 0) }}%
+                                </div>
+                            </div>
+                         </n></td>
                         <td>
                             <a href="{{ url_for('portfolios_detail_html', portfolio_id=portfolio.id) }}" class="btn btn-sm btn-outline-primary">
                                 <i class="fas fa-eye"></i> Детали
                             </a>
-                        </td>
+                         </n></td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -71,23 +146,42 @@
 
 {% else %}
 <div class="alert alert-info">
-    <i class="fas fa-info-circle"></i> У вас пока нет портфелей для анализа. Создайте первый портфель!
+    <i class="fas fa-info-circle"></i> У вас пока нет портфелей для анализа. 
+    <a href="{{ url_for('portfolios_create_html') }}">Создайте первый портфель!</a>
 </div>
 {% endif %}
-{% endblock %}
 
-{% block scripts %}
-{% if portfolios %}
 <script>
+function filterPortfolio() {
+    const select = document.getElementById('portfolioFilter');
+    const portfolioId = select.value;
+    
+    if (portfolioId === 'all') {
+        window.location.href = '/analytics';
+    } else {
+        window.location.href = `/analytics?portfolio_id=${portfolioId}`;
+    }
+}
+
+// Рассчитываем среднюю доходность
+{% if portfolios %}
+const returns = {{ portfolios|map(attribute='pnl_pct')|list|tojson }};
+const avgReturn = returns.reduce((a, b) => a + b, 0) / returns.length;
+document.getElementById('avgReturn').innerHTML = avgReturn.toFixed(2) + '%';
+document.getElementById('avgReturn').className = avgReturn >= 0 ? 'profit-positive' : 'profit-negative';
+{% endif %}
+
 // Создаем график распределения
+{% if portfolios %}
 const ctx = document.getElementById('portfolioChart').getContext('2d');
 const portfolioNames = {{ portfolios|map(attribute='name')|list|tojson }};
 const portfolioValues = {{ portfolios|map(attribute='value')|list|tojson }};
+const portfolioCurrencies = {{ portfolios|map(attribute='currency')|list|tojson }};
 
 new Chart(ctx, {
     type: 'pie',
     data: {
-        labels: portfolioNames,
+        labels: portfolioNames.map((name, i) => `${name} (${portfolioCurrencies[i]})`),
         datasets: [{
             data: portfolioValues,
             backgroundColor: [
@@ -96,7 +190,11 @@ new Chart(ctx, {
                 '#f093fb',
                 '#4facfe',
                 '#11998e',
-                '#38ef7d'
+                '#38ef7d',
+                '#fa709a',
+                '#fee140',
+                '#30cfd0',
+                '#a8edea'
             ],
             borderWidth: 2,
             borderColor: '#fff'
@@ -116,13 +214,13 @@ new Chart(ctx, {
                         const value = context.raw || 0;
                         const total = context.dataset.data.reduce((a, b) => a + b, 0);
                         const percentage = ((value / total) * 100).toFixed(2);
-                        return `${label}: $${value.toFixed(2)} (${percentage}%)`;
+                        return `${label}: ${value.toFixed(2)} (${percentage}%)`;
                     }
                 }
             }
         }
     }
 });
-</script>
 {% endif %}
+</script>
 {% endblock %}
