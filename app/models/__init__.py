@@ -12,10 +12,13 @@ from app.models.sector import Sector
 from app.models.currency_rate import CurrencyRate
 from app.models.cash_flow import CashFlow
 from app.models.price_cache import PriceCache
-from app.models.closed_positions import ClosedPosition  # Добавляем
+from app.models.closed_positions import ClosedPosition
+from app.models.tax_event import TaxEvent  # Добавьте
+from app.models.split_event import SplitEvent  # Добавьте
 
 __all__ = [
     'User', 'Asset', 'Portfolio', 'Transaction', 'Position',
     'HistoricalPrice', 'Broker', 'Exchange', 'AssetClass',
-    'Sector', 'CurrencyRate', 'CashFlow', 'PriceCache', 'ClosedPosition'
+    'Sector', 'CurrencyRate', 'CashFlow', 'PriceCache', 'ClosedPosition',
+    'TaxEvent', 'SplitEvent'
 ]

@@ -26,6 +26,7 @@
             </button>
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav ms-auto">
+                    <!-- app/templates/base.html - обновите ссылки -->
                     {% if current_user %}
                     <li class="nav-item">
                         <a class="nav-link" href="{{ url_for('portfolios_list') }}">
@@ -44,18 +45,28 @@
                     </li>
                     <li class="nav-item dropdown">
                         <a class="nav-link dropdown-toggle" href="#" id="navbarDropdown" role="button" data-bs-toggle="dropdown">
-                            <i class="fas fa-user"></i> {{ current_user.email }}
+                            <i class="fas fa-user"></i> {{ current_user.get_full_name() }}
                         </a>
                         <ul class="dropdown-menu dropdown-menu-end">
-                            <li><a class="dropdown-item" href="{{ url_for('logout_html') }}">Выйти</a></li>
+                            <li><a class="dropdown-item" href="{{ url_for('profile_html') }}">
+                                <i class="fas fa-user-circle"></i> Мой профиль
+                            </a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="{{ url_for('logout_page') }}">  <!-- изменено -->
+                                <i class="fas fa-sign-out-alt"></i> Выйти
+                            </a></li>
                         </ul>
                     </li>
                     {% else %}
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('login_html') }}">Вход</a>
+                        <a class="nav-link" href="{{ url_for('login_page') }}">  <!-- изменено -->
+                            <i class="fas fa-sign-in-alt"></i> Вход
+                        </a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('register_html') }}">Регистрация</a>
+                        <a class="nav-link" href="{{ url_for('register_page') }}">  <!-- изменено -->
+                            <i class="fas fa-user-plus"></i> Регистрация
+                        </a>
                     </li>
                     {% endif %}
                 </ul>

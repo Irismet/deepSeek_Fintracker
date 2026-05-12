@@ -27,7 +27,8 @@ app.config['JWT_COOKIE_CSRF_PROTECT'] = False
 app.config['JWT_ACCESS_COOKIE_NAME'] = 'access_token'
 app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(days=1)  # 24 часа
 app.config['JWT_COOKIE_SAMESITE'] = 'Lax'
-
+app.config['JSONIFY_MIMETYPE'] = 'application/json'
+app.config['WTF_CSRF_ENABLED'] = False
 # Инициализируем JWT
 jwt = JWTManager(app)
 

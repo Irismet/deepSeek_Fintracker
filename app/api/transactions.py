@@ -11,6 +11,7 @@ from app.models.broker import Broker
 from app.models.exchange import Exchange
 from app.services.position_service import PositionService
 from datetime import datetime
+from app.models.tax_event import TaxEvent
 import traceback
 
 transactions_bp = Blueprint('api_transactions', __name__)
@@ -18,30 +19,14 @@ transactions_bp = Blueprint('api_transactions', __name__)
 @transactions_bp.route('/transactions', methods=['POST'])
 @jwt_required()
 def create_transaction():
-    import traceback
-    from flask import current_app
-    
-    current_app.logger.info("=== Creating transaction ===")
     try:
         user_id = get_jwt_identity()
-        current_app.logger.info(f"User ID: {user_id}, type: {type(user_id)}")
-
-        # Конвертируем user_id из строки в int если нужно
         if isinstance(user_id, str):
             user_id = int(user_id)
         
         data = request.get_json()
+        print(f"Received transaction data: {data}")
         
-        if not data:
-            return jsonify({'error': 'No data provided'}), 400
-        
-        # Проверяем обязательные поля
-        required_fields = ['portfolio_id', 'tx_type', 'quantity', 'price', 'tx_date']
-        for field in required_fields:
-            if field not in data:
-                return jsonify({'error': f'Missing required field: {field}'}), 400
-        
-        # Проверяем портфель
         portfolio = Portfolio.query.filter_by(id=data['portfolio_id'], user_id=user_id).first()
         if not portfolio:
             return jsonify({'error': 'Portfolio not found'}), 404
@@ -50,50 +35,96 @@ def create_transaction():
         asset = None
         if 'asset_id' in data and data['asset_id']:
             asset = Asset.query.get(data['asset_id'])
-            if not asset:
-                return jsonify({'error': 'Asset not found'}), 404
-        elif 'asset_ticker' in data and data['asset_ticker']:
-            asset = Asset.query.filter_by(ticker=data['asset_ticker']).first()
-            if not asset:
-                # Создаем новый актив
-                asset = Asset(
-                    ticker=data['asset_ticker'],
-                    name=data.get('asset_name', data['asset_ticker']),
-                    asset_type=data.get('asset_type', 'stock'),
-                    currency=data.get('asset_currency', 'USD')
-                )
-                db.session.add(asset)
-                db.session.flush()
-        
-        # Обработка брокера
-        broker_id = data.get('broker_id')
-        if broker_id:
-            broker = Broker.query.get(broker_id)
-            if not broker:
-                return jsonify({'error': 'Broker not found'}), 404
         
         # Обработка биржи
         exchange = None
-        exchange_name = data.get('exchange')
-        if exchange_name:
-            exchange = Exchange.query.filter_by(name=exchange_name).first()
+        if data.get('exchange'):
+            exchange = Exchange.query.filter_by(name=data['exchange']).first()
         
         # Создание транзакции
         transaction = Transaction(
             portfolio_id=portfolio.id,
             asset_id=asset.id if asset else None,
-            broker_id=broker_id,
+            broker_id=data.get('broker_id'),
             exchange_id=exchange.id if exchange else None,
             tx_type=data['tx_type'],
-            quantity=data['quantity'],
-            price=data['price'],
-            fee=data.get('fee', 0),
+            quantity=Decimal(str(data['quantity'])),
+            price=Decimal(str(data['price'])),
+            fee=Decimal(str(data.get('fee', 0))),
             tx_currency=data.get('tx_currency', portfolio.currency),
             tx_date=datetime.fromisoformat(data['tx_date'].replace('Z', '+00:00')),
             notes=data.get('notes')
         )
         
         db.session.add(transaction)
+        db.session.flush()  # Чтобы получить transaction.id
+        
+        # Если это дивиденды - создаем налоговые события
+        if data['tx_type'] == 'dividend' and asset:
+            gross_amount = Decimal(str(data.get('gross_amount', data['quantity'] * data['price'])))
+            
+            # Получаем информацию о бирже и ISIN
+            exchange_name = exchange.name if exchange else (asset.exchange.name if asset.exchange else '')
+            isin = asset.isin or ''
+            
+            # Определяем ставки налогов
+            us_tax_rate = 0
+            local_tax_rate = 0
+            
+            if exchange_name in ['KASE', 'AIX']:
+                if isin.startswith('KZ'):
+                    us_tax_rate = 0
+                    local_tax_rate = 5
+                else:
+                    us_tax_rate = 15
+                    local_tax_rate = 5
+            else:
+                if isin.startswith('US'):
+                    us_tax_rate = 15
+                    local_tax_rate = 10
+                else:
+                    us_tax_rate = 0
+                    local_tax_rate = 10
+            
+            # Рассчитываем налоги
+            us_tax = gross_amount * Decimal(str(us_tax_rate)) / 100
+            local_tax = gross_amount * Decimal(str(local_tax_rate)) / 100
+            
+            # Создаем налоговое событие для США
+            if us_tax > 0:
+                tax_event_us = TaxEvent(
+                    portfolio_id=portfolio.id,
+                    asset_id=asset.id,
+                    transaction_id=transaction.id,
+                    tax_type='withholding_us',
+                    tax_rate=us_tax_rate,
+                    taxable_amount=gross_amount,
+                    tax_amount=us_tax,
+                    currency=data['tx_currency'],
+                    tax_date=transaction.tx_date,
+                    notes=f'Налог у источника в США ({us_tax_rate}%) на дивиденды по {asset.ticker}'
+                )
+                db.session.add(tax_event_us)
+                print(f"Created US tax event: {us_tax} {data['tx_currency']}")
+            
+            # Создаем налоговое событие для местного налога
+            if local_tax > 0:
+                tax_event_local = TaxEvent(
+                    portfolio_id=portfolio.id,
+                    asset_id=asset.id,
+                    transaction_id=transaction.id,
+                    tax_type='local_dividend',
+                    tax_rate=local_tax_rate,
+                    taxable_amount=gross_amount,
+                    tax_amount=local_tax,
+                    currency=data['tx_currency'],
+                    tax_date=transaction.tx_date,
+                    notes=f'Местный налог ({local_tax_rate}%) на дивиденды по {asset.ticker}'
+                )
+                db.session.add(tax_event_local)
+                print(f"Created local tax event: {local_tax} {data['tx_currency']}")
+        
+        db.session.commit()
         
         # Обновляем позиции для buy/sell
         if transaction.tx_type in ['buy', 'sell'] and asset:
@@ -106,17 +137,14 @@ def create_transaction():
                 fee=transaction.fee
             )
         
-        db.session.commit()
-        
         return jsonify(transaction.to_dict()), 201
         
     except Exception as e:
         db.session.rollback()
-        current_app.logger.error(f"Error creating transaction: {str(e)}")
-        current_app.logger.error(traceback.format_exc())
-        print(f"Error creating transaction: {str(e)}")
+        print(f"Error creating transaction: {e}")
+        import traceback
         traceback.print_exc()
-        return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
+        return jsonify({'error': str(e)}), 500
 
 @transactions_bp.route('/transactions/portfolio/<int:portfolio_id>', methods=['GET'])
 @jwt_required()
@@ -126,7 +154,7 @@ def get_portfolio_transactions(portfolio_id):
     
     transactions = Transaction.query.filter_by(portfolio_id=portfolio_id)\
         .order_by(Transaction.tx_date.desc())\
-        .limit(100)\
+        .limit(999999)\
         .all()
     
     return jsonify([t.to_dict() for t in transactions]), 200

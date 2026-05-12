@@ -12,10 +12,10 @@
             {% if not current_user %}
             <hr class="my-4">
             <p>Начните отслеживать свои инвестиции прямо сейчас!</p>
-            <a class="btn btn-primary btn-lg" href="{{ url_for('auth.register') }}" role="button">
+            <a class="btn btn-primary btn-lg" href="{{ url_for('register_page') }}" role="button">
                 <i class="fas fa-user-plus"></i> Зарегистрироваться
             </a>
-            <a class="btn btn-outline-primary btn-lg" href="{{ url_for('auth.login') }}" role="button">
+            <a class="btn btn-outline-primary btn-lg" href="{{ url_for('login_page') }}" role="button">
                 <i class="fas fa-sign-in-alt"></i> Войти
             </a>
             {% else %}

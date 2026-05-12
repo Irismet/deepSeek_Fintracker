@@ -48,6 +48,7 @@ class CurrencyService:
         
         if rate:
             cls._rates_cache[cache_key] = rate.rate
+            logger.warning(f"Currency rate: {rate.rate}")    
             return rate.rate
         
         # Если курс не найден, возвращаем 1 (без конвертации)
@@ -61,6 +62,7 @@ class CurrencyService:
             return amount
         
         rate = cls.get_rate(from_currency, to_currency, rate_date)
+        logger.info(f"convert value from currency: {from_currency} to {to_currency}, rate = { rate}")
         return amount * rate
     
     @classmethod

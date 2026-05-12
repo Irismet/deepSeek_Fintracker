@@ -1,5 +1,6 @@
 # app/services/analytics_service.py
 from app.extensions import db
+from app.models.tax_event import TaxEvent
 from app.models.transaction import Transaction
 from app.models.position import Position
 from app.models.historical_price import HistoricalPrice
@@ -48,7 +49,7 @@ class AnalyticsService:
                 portfolio_currency, 
                 div.tx_date.date()
             )
-        
+            logger.info(f"total_dividends = {total_dividends}, by {div.id}")
         # Получаем тикеры для запроса цен (только не облигации)
         tickers = []
         positions_info = []
@@ -171,13 +172,15 @@ class AnalyticsService:
         total_pnl_with_dividends = total_unrealized_pnl + total_realized_pnl + total_dividends
         total_return_pct = (total_pnl_with_dividends / total_cost * 100) if total_cost > 0 else 0
         
+        # В конце метода get_portfolio_summary должен быть такой return:
+
         return {
             'total_value': float(total_value),
             'total_cost': float(total_cost),
             'total_dividends': float(total_dividends),
             'total_realized_pnl': float(total_realized_pnl),
             'total_unrealized_pnl': float(total_unrealized_pnl),
-            'total_pnl': float(total_pnl_with_dividends),
+            'total_pnl': float(total_pnl_with_dividends),  # Важно!
             'total_return_pct': float(total_return_pct),
             'positions': summary,
             'portfolio_currency': portfolio_currency
@@ -271,3 +274,42 @@ class AnalyticsService:
             })
         
         return result
+    
+
+    # Добавьте в analytics_service метод для расчета доходности с учетом налогов
+
+    @classmethod
+    def get_after_tax_returns(cls, portfolio_id, portfolio_currency='USD'):
+        """Расчет доходности после уплаты налогов"""
+        
+        # Получаем все налоговые события
+        tax_events = TaxEvent.query.filter_by(portfolio_id=portfolio_id).all()
+        
+        total_taxes_paid = Decimal('0')
+        taxes_by_type = {
+            'withholding_us': Decimal('0'),
+            'local_dividend': Decimal('0'),
+            'local_capital_gains': Decimal('0')
+        }
+        
+        for tax in tax_events:
+            tax_amount_converted = CurrencyService.convert(
+                tax.tax_amount,
+                tax.currency,
+                portfolio_currency,
+                tax.tax_date.date()
+            )
+            total_taxes_paid += tax_amount_converted
+            
+            if 'withholding_us' in tax.tax_type:
+                taxes_by_type['withholding_us'] += tax_amount_converted
+            elif 'local_dividend' in tax.tax_type:
+                taxes_by_type['local_dividend'] += tax_amount_converted
+            elif 'local_capital_gains' in tax.tax_type:
+                taxes_by_type['local_capital_gains'] += tax_amount_converted
+        
+        return {
+            'total_taxes_paid': float(total_taxes_paid),
+            'taxes_by_type': {k: float(v) for k, v in taxes_by_type.items()},
+            'after_tax_pnl': None,  # будет рассчитано на основе общей доходности
+        }

@@ -9,37 +9,30 @@
             <div class="card-header">
                 <h4><i class="fas fa-edit"></i> Редактировать транзакцию</h4>
             </div>
-            <div>
-                <a href="{{ url_for('portfolios_detail_html', portfolio_id=portfolio_id) }}" class="btn btn-secondary">
-                    <i class="fas fa-arrow-left"></i> Вернуться к портфелю
-                </a>
-            </div>
             <div class="card-body">
-                <form id="transactionForm">
-                    <input type="hidden" id="portfolio_id" name="portfolio_id" value="{{ portfolio_id }}">
-                    <input type="hidden" id="transaction_id" name="transaction_id" value="{{ transaction.id }}">
-                    
+                <form method="POST" id="transactionForm">
                     <div class="mb-3">
                         <label for="tx_type" class="form-label">Тип операции</label>
-                        <select class="form-control" id="tx_type" name="tx_type" required>
+                        <select class="form-select" id="tx_type" name="tx_type" required onchange="toggleTaxSection()">
                             <option value="buy" {% if transaction.tx_type == 'buy' %}selected{% endif %}>Покупка</option>
                             <option value="sell" {% if transaction.tx_type == 'sell' %}selected{% endif %}>Продажа</option>
+                            <option value="dividend" {% if transaction.tx_type == 'dividend' %}selected{% endif %}>Дивиденды / Купон</option>
                             <option value="deposit" {% if transaction.tx_type == 'deposit' %}selected{% endif %}>Пополнение</option>
                             <option value="withdraw" {% if transaction.tx_type == 'withdraw' %}selected{% endif %}>Вывод</option>
-                            <option value="dividend" {% if transaction.tx_type == 'dividend' %}selected{% endif %}>Дивиденды</option>
                             <option value="tax_fee" {% if transaction.tx_type == 'tax_fee' %}selected{% endif %}>Налог/Комиссия</option>
                         </select>
                     </div>
                     
                     <div class="mb-3" id="asset_section">
                         <label for="asset_id" class="form-label">Актив</label>
-                        <select class="form-control" id="asset_id" name="asset_id">
+                        <select class="form-select" id="asset_id" name="asset_id" onchange="updateCalculations()">
                             <option value="">Выберите актив (или оставьте пустым для кэша)</option>
                             {% for asset in assets %}
                             <option value="{{ asset.id }}" 
                                     data-ticker="{{ asset.ticker }}" 
                                     data-currency="{{ asset.currency }}" 
                                     data-exchange="{{ asset.exchange.name if asset.exchange else '' }}"
+                                    data-isin="{{ asset.isin or '' }}"
                                     {% if transaction.asset_id == asset.id %}selected{% endif %}>
                                 {{ asset.ticker }} - {{ asset.name }} 
                                 {% if asset.isin %}({{ asset.isin }}){% endif %}
@@ -47,10 +40,6 @@
                             </option>
                             {% endfor %}
                         </select>
-                        <div class="form-text mt-2">
-                            <i class="fas fa-plus-circle"></i> 
-                            <a href="{{ url_for('asset_create_html') }}" target="_blank">Создать новый актив</a>, если его нет в списке
-                        </div>
                     </div>
                     
                     <div class="row">
@@ -58,14 +47,14 @@
                             <div class="mb-3">
                                 <label for="quantity" class="form-label">Количество</label>
                                 <input type="number" step="any" class="form-control" id="quantity" 
-                                       name="quantity" value="{{ transaction.quantity|float }}" required>
+                                       name="quantity" value="{{ transaction.quantity|float }}" required oninput="updateCalculations()">
                             </div>
                         </div>
                         <div class="col-md-6">
                             <div class="mb-3">
                                 <label for="price" class="form-label">Цена за единицу</label>
                                 <input type="number" step="any" class="form-control" id="price" 
-                                       name="price" value="{{ transaction.price|float }}" required>
+                                       name="price" value="{{ transaction.price|float }}" required oninput="updateCalculations()">
                             </div>
                         </div>
                     </div>
@@ -74,17 +63,11 @@
                         <div class="col-md-6">
                             <div class="mb-3">
                                 <label for="broker_id" class="form-label">Брокер</label>
-                                <select class="form-control" id="broker_id" name="broker_id">
+                                <select class="form-select" id="broker_id" name="broker_id">
                                     <option value="">Выберите брокера</option>
                                     {% for broker in brokers %}
-                                    <option value="{{ broker.id }}" 
-                                            data-name="{{ broker.name }}" 
-                                            data-commission="{{ broker.commission_fee or 0 }}"
-                                            {% if transaction.broker_id == broker.id %}selected{% endif %}>
-                                        {{ broker.name }} 
-                                        {% if broker.commission_fee %}
-                                            ({{ broker.commission_fee }}% комиссия)
-                                        {% endif %}
+                                    <option value="{{ broker.id }}" {% if transaction.broker_id == broker.id %}selected{% endif %}>
+                                        {{ broker.name }}
                                     </option>
                                     {% endfor %}
                                 </select>
@@ -93,11 +76,11 @@
                         <div class="col-md-6">
                             <div class="mb-3">
                                 <label for="exchange" class="form-label">Биржа</label>
-                                <select class="form-control" id="exchange" name="exchange">
+                                <select class="form-select" id="exchange" name="exchange">
                                     <option value="">Выберите биржу</option>
                                     {% for exchange in exchanges %}
                                     <option value="{{ exchange.name }}" {% if transaction.exchange_id == exchange.id %}selected{% endif %}>
-                                        {{ exchange.name }} ({{ exchange.country }})
+                                        {{ exchange.name }}
                                     </option>
                                     {% endfor %}
                                 </select>
@@ -109,7 +92,7 @@
                         <div class="col-md-6">
                             <div class="mb-3">
                                 <label for="tx_currency" class="form-label">Валюта сделки</label>
-                                <select class="form-control" id="tx_currency" name="tx_currency" required>
+                                <select class="form-select" id="tx_currency" name="tx_currency" required>
                                     <option value="USD" {% if transaction.tx_currency == 'USD' %}selected{% endif %}>USD</option>
                                     <option value="EUR" {% if transaction.tx_currency == 'EUR' %}selected{% endif %}>EUR</option>
                                     <option value="RUB" {% if transaction.tx_currency == 'RUB' %}selected{% endif %}>RUB</option>
@@ -121,14 +104,48 @@
                         <div class="col-md-6">
                             <div class="mb-3">
                                 <label for="fee" class="form-label">Комиссия</label>
-                                <div class="input-group">
-                                    <input type="number" step="any" class="form-control" id="fee" 
-                                           name="fee" value="{{ transaction.fee|float }}">
-                                    <button type="button" class="btn btn-outline-secondary" id="calculateFeeBtn">
-                                        <i class="fas fa-calculator"></i> Пересчитать
-                                    </button>
+                                <input type="number" step="any" class="form-control" id="fee" 
+                                       name="fee" value="{{ transaction.fee|float }}">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Блок налогов (показывается только для дивидендов) -->
+                    <div id="taxSection" style="display: {% if transaction.tx_type == 'dividend' %}block{% else %}none{% endif %};">
+                        <div class="card mb-3">
+                            <div class="card-header bg-info text-white">
+                                <h6 class="mb-0"><i class="fas fa-calculator"></i> Расчет налогов на дивиденды</h6>
+                            </div>
+                            <div class="card-body">
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="mb-3">
+                                            <label for="us_tax" class="form-label">Налог США (у источника)</label>
+                                            <div class="input-group">
+                                                <input type="text" class="form-control" id="us_tax" readonly style="background-color: #e9ecef;" value="{{ "%.4f"|format(us_tax) if us_tax else '0.00' }}">
+                                                <span class="input-group-text">(15%)</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="mb-3">
+                                            <label for="local_tax" class="form-label">Местный налог</label>
+                                            <div class="input-group">
+                                                <input type="text" class="form-control" id="local_tax" readonly style="background-color: #e9ecef;" value="{{ "%.4f"|format(local_tax) if local_tax else '0.00' }}">
+                                                <span class="input-group-text">(%)</span>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
-                                <div id="feeFormula" class="form-text text-muted" style="font-size: 0.8em;"></div>
+                                <div class="alert alert-success">
+                                    <strong>💸 Итого налогов:</strong>
+                                    <span id="total_tax">{{ "%.4f"|format((us_tax|float + local_tax|float)) if us_tax or local_tax else '0.00' }}</span>
+                                    <span id="tax_currency">{{ transaction.tx_currency }}</span>
+                                </div>
+                                <div class="alert alert-warning" id="taxFormula" style="font-size: 0.9em;">
+                                    <i class="fas fa-info-circle"></i> 
+                                    <span id="taxFormulaText"></span>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -144,45 +161,16 @@
                                name="tx_date" value="{{ transaction.tx_date.strftime('%Y-%m-%dT%H:%M') }}" required>
                     </div>
                     
-                    <div class="alert alert-info" id="calculationInfo" style="display: none;">
-                        <i class="fas fa-info-circle"></i> 
-                        <span id="calculationText"></span>
-                    </div>
-                    
                     <div class="alert alert-warning">
                         <i class="fas fa-exclamation-triangle"></i>
                         <strong>Внимание!</strong> После редактирования транзакции позиции портфеля будут автоматически пересчитаны.
                     </div>
                     
-                    <div class="card mt-3" id="previewCard" style="display: none;">
-                        <div class="card-header bg-primary text-white">
-                            <h6 class="mb-0"><i class="fas fa-eye"></i> Предпросмотр сделки</h6>
-                        </div>
-                        <div class="card-body">
-                            <table class="table table-sm table-borderless">
-                                <tr>
-                                    <th width="40%">Сумма сделки:</th>
-                                    <td id="previewAmount" class="text-end">0.00</td>
-                                </tr>
-                                <tr>
-                                    <th>Комиссия:</th>
-                                    <td id="previewFee" class="text-end">0.00</td>
-                                </tr>
-                                <tr class="table-primary">
-                                    <th><strong>Итого:</strong></th>
-                                    <td id="previewTotal" class="text-end"><strong>0.00</strong></td>
-                                </tr>
-                            </table>
-                        </div>
-                    </div>
-                    
-                    <div class="d-flex justify-content-between mt-3">
-                        <form method="PUT" action="{{ url_for('transaction_edit_html', transaction_id=transaction.id) }}"></form>
+                    <div class="d-flex justify-content-between">
                         <button type="submit" class="btn btn-primary">
                             <i class="fas fa-save"></i> Сохранить
                         </button>
-                            <a href="{{ url_for('portfolios_detail_html', portfolio_id=portfolio_id) }}" class="btn btn-secondary">
-                        </form>
+                        <a href="{{ url_for('portfolios_detail_html', portfolio_id=portfolio_id) }}" class="btn btn-secondary">
                             <i class="fas fa-times"></i> Отмена
                         </a>
                     </div>
@@ -195,111 +183,90 @@
 
 {% block scripts %}
 <script>
-// Данные о брокерах из базы
-const brokersData = {
-    {% for broker in brokers %}
-    {{ broker.id }}: {
-        name: "{{ broker.name }}",
-        commission: {{ broker.commission_fee or 0 }}
-    },
-    {% endfor %}
-};
-
-// Функция получения токена из cookie
-function getAccessToken() {
-    const cookies = document.cookie.split(';');
-    for (let i = 0; i < cookies.length; i++) {
-        let cookie = cookies[i].trim();
-        if (cookie.startsWith('access_token=')) {
-            return cookie.substring('access_token='.length);
-        }
+// Показать/скрыть блок налогов
+function toggleTaxSection() {
+    const txType = document.getElementById('tx_type').value;
+    const taxSection = document.getElementById('taxSection');
+    
+    if (txType === 'dividend') {
+        taxSection.style.display = 'block';
+        updateCalculations();
+    } else {
+        taxSection.style.display = 'none';
     }
-    return localStorage.getItem('access_token');
 }
 
-// Функция расчета комиссии
-function calculateFee(amount, brokerId, exchange) {
-    if (!brokerId || !amount || amount <= 0) {
-        return { fee: 0, formula: "Заполните сумму и выберите брокера" };
+// При изменении актива или суммы - пересчет налогов
+function updateCalculations() {
+    const txType = document.getElementById('tx_type').value;
+    
+    if (txType !== 'dividend') {
+        return;
     }
     
-    const broker = brokersData[brokerId];
-    if (!broker || !broker.commission) {
-        return { fee: 0, formula: "Комиссия не установлена для этого брокера" };
+    const assetSelect = document.getElementById('asset_id');
+    const assetId = assetSelect.value;
+    const quantity = parseFloat(document.getElementById('quantity').value);
+    const price = parseFloat(document.getElementById('price').value);
+    
+    if (!assetId || isNaN(quantity) || isNaN(price) || quantity <= 0 || price <= 0) {
+        document.getElementById('us_tax').value = '0.00';
+        document.getElementById('local_tax').value = '0.00';
+        document.getElementById('total_tax').innerHTML = '0.00';
+        document.getElementById('taxFormulaText').innerHTML = 'Выберите актив и заполните сумму';
+        return;
     }
     
-    const commissionPercent = broker.commission;
-    const baseFee = amount * commissionPercent / 100;
+    const grossAmount = quantity * price;
+    const selectedOption = assetSelect.options[assetSelect.selectedIndex];
+    const exchange = selectedOption.getAttribute('data-exchange') || '';
+    const isin = selectedOption.getAttribute('data-isin') || '';
     
-    let fee = baseFee;
-    let formula = `${amount.toFixed(2)} × ${commissionPercent}% / 100 = ${baseFee.toFixed(2)}`;
+    let usTaxRate = 0;
+    let localTaxRate = 0;
+    let formulaText = '';
     
+    // Определяем ставки налогов
     if (exchange === 'KASE' || exchange === 'AIX') {
-        fee = baseFee;
-        formula = `${amount.toFixed(2)} × ${commissionPercent}% / 100 = ${fee.toFixed(2)}`;
-    } else {
-        if (broker.name === 'Freedom Broker') {
-            fee = baseFee + 1.2;
-            formula = `(${amount.toFixed(2)} × ${commissionPercent}% / 100) + 1.2 = ${fee.toFixed(2)}`;
-        } else if (broker.name === 'Alatau City Invest' || broker.name === 'Halyk Invest') {
-            fee = baseFee + 7.5;
-            formula = `(${amount.toFixed(2)} × ${commissionPercent}% / 100) + 7.5 = ${fee.toFixed(2)}`;
+        if (isin.startsWith('KZ')) {
+            usTaxRate = 0;
+            localTaxRate = 5;
+            formulaText = `📌 Казахстанская бумага на ${exchange}: местный налог 5%`;
         } else {
-            fee = baseFee;
-            formula = `${amount.toFixed(2)} × ${commissionPercent}% / 100 = ${fee.toFixed(2)}`;
+            usTaxRate = 15;
+            localTaxRate = 5;
+            formulaText = `📌 Иностранная бумага на ${exchange}: налог США 15% + местный налог 5%`;
+        }
+    } else {
+        if (isin.startsWith('US')) {
+            usTaxRate = 15;
+            localTaxRate = 10;
+            formulaText = `📌 Американская бумага: налог США 15% + местный налог 10%`;
+        } else {
+            usTaxRate = 0;
+            localTaxRate = 10;
+            formulaText = `📌 Прочая бумага: местный налог 10%`;
         }
     }
     
-    return { fee: parseFloat(fee.toFixed(2)), formula: formula, commissionPercent: commissionPercent };
+    const usTax = grossAmount * usTaxRate / 100;
+    const localTax = grossAmount * localTaxRate / 100;
+    const totalTax = usTax + localTax;
+    
+    document.getElementById('us_tax').value = usTax.toFixed(4);
+    document.getElementById('local_tax').value = localTax.toFixed(4);
+    document.getElementById('total_tax').innerHTML = totalTax.toFixed(4);
+    document.getElementById('tax_currency').innerHTML = selectedOption.getAttribute('data-currency') || 'USD';
+    
+    document.getElementById('taxFormulaText').innerHTML = 
+        `${formulaText}<br>
+         Сумма дивидендов: ${grossAmount.toFixed(4)}<br>
+         Налог США: ${usTax.toFixed(4)} (${usTaxRate}%)<br>
+         Местный налог: ${localTax.toFixed(4)} (${localTaxRate}%)<br>
+         <strong>Итого к уплате: ${totalTax.toFixed(4)}</strong>`;
 }
 
-// Функция обновления всех расчетов
-function updateAllCalculations() {
-    const quantity = parseFloat(document.getElementById('quantity').value);
-    const price = parseFloat(document.getElementById('price').value);
-    const brokerId = document.getElementById('broker_id').value;
-    const exchange = document.getElementById('exchange').value;
-    
-    const amount = quantity * price;
-    
-    if (quantity && price && brokerId && !isNaN(amount)) {
-        const result = calculateFee(amount, brokerId, exchange);
-        
-        document.getElementById('fee').value = result.fee;
-        document.getElementById('feeFormula').innerHTML = `<i class="fas fa-chart-line"></i> ${result.formula}`;
-        
-        // Обновляем превью
-        const total = amount + result.fee;
-        const currency = document.getElementById('tx_currency').value;
-        
-        document.getElementById('previewAmount').innerHTML = `${amount.toFixed(2)} ${currency}`;
-        document.getElementById('previewFee').innerHTML = `${result.fee.toFixed(2)} ${currency}`;
-        document.getElementById('previewTotal').innerHTML = `${total.toFixed(2)} ${currency}`;
-        document.getElementById('previewCard').style.display = 'block';
-    } else {
-        document.getElementById('previewCard').style.display = 'none';
-    }
-}
-
-// Кнопка ручного расчета
-document.getElementById('calculateFeeBtn').addEventListener('click', () => {
-    const quantity = parseFloat(document.getElementById('quantity').value);
-    const price = parseFloat(document.getElementById('price').value);
-    const brokerId = document.getElementById('broker_id').value;
-    const exchange = document.getElementById('exchange').value;
-    
-    if (quantity && price && brokerId) {
-        const amount = quantity * price;
-        const result = calculateFee(amount, brokerId, exchange);
-        document.getElementById('fee').value = result.fee;
-        document.getElementById('feeFormula').innerHTML = `<i class="fas fa-chart-line"></i> ${result.formula}`;
-        alert(`Детальный расчет комиссии:\n\nСумма сделки: ${amount.toFixed(2)}\nФормула: ${result.formula}`);
-    } else {
-        alert('Пожалуйста, заполните количество, цену и выберите брокера');
-    }
-});
-
-// Автозаполнение при выборе актива
+// При изменении актива
 document.getElementById('asset_id').addEventListener('change', function() {
     const selectedOption = this.options[this.selectedIndex];
     const currency = selectedOption.getAttribute('data-currency');
@@ -311,113 +278,19 @@ document.getElementById('asset_id').addEventListener('change', function() {
     if (exchange) {
         document.getElementById('exchange').value = exchange;
     }
-    updateAllCalculations();
+    
+    updateCalculations();
 });
 
-// Слушатели для автоматического пересчета
-document.getElementById('quantity').addEventListener('input', updateAllCalculations);
-document.getElementById('price').addEventListener('input', updateAllCalculations);
-document.getElementById('broker_id').addEventListener('change', updateAllCalculations);
-document.getElementById('exchange').addEventListener('change', updateAllCalculations);
-document.getElementById('tx_currency').addEventListener('change', updateAllCalculations);
+// Слушатели событий
+document.getElementById('quantity').addEventListener('input', updateCalculations);
+document.getElementById('price').addEventListener('input', updateCalculations);
+document.getElementById('tx_type').addEventListener('change', toggleTaxSection);
 
-// Отправка формы (PUT запрос для обновления)
-document.getElementById('transactionForm').addEventListener('submit', async function(e) {
-    e.preventDefault();
-    
-    console.log('=== Starting form submission (UPDATE) ===');
-    
-    const token = getAccessToken();
-    
-    if (!token) {
-        alert('Сессия истекла. Пожалуйста, войдите снова.');
-        window.location.href = '/auth/login';
-        return;
-    }
-    
-    const transactionId = parseInt(document.getElementById('transaction_id').value);
-    const portfolioId = parseInt(document.getElementById('portfolio_id').value);
-    const txType = document.getElementById('tx_type').value;
-    const quantity = parseFloat(document.getElementById('quantity').value);
-    const price = parseFloat(document.getElementById('price').value);
-    const fee = parseFloat(document.getElementById('fee').value);
-    const txCurrency = document.getElementById('tx_currency').value;
-    const txDate = document.getElementById('tx_date').value;
-    const brokerId = document.getElementById('broker_id').value ? parseInt(document.getElementById('broker_id').value) : null;
-    const exchange = document.getElementById('exchange').value || null;
-    const notes = document.getElementById('notes').value || null;
-    
-    const assetSelect = document.getElementById('asset_id');
-    const assetId = assetSelect.value ? parseInt(assetSelect.value) : null;
-    const assetTicker = assetId ? assetSelect.options[assetSelect.selectedIndex].getAttribute('data-ticker') : null;
-    
-    const formData = {
-        transaction_id: transactionId,
-        portfolio_id: portfolioId,
-        tx_type: txType,
-        quantity: quantity,
-        price: price,
-        fee: fee,
-        tx_currency: txCurrency,
-        tx_date: new Date(txDate).toISOString(),
-        broker_id: brokerId,
-        exchange: exchange,
-        notes: notes
-    };
-    
-    if (assetId) {
-        formData.asset_id = assetId;
-        formData.asset_ticker = assetTicker;
-    }
-    
-    console.log('Updating transaction:', formData);
-    
-    const submitBtn = this.querySelector('button[type="submit"]');
-    const originalText = submitBtn.innerHTML;
-    submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Сохранение...';
-    submitBtn.disabled = true;
-    
-    try {
-        const response = await fetch(`/api/transactions/${transactionId}`, {
-            method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            },
-            body: JSON.stringify(formData)
-        });
-        
-        if (response.status === 401) {
-            alert('Сессия истекла. Пожалуйста, войдите снова.');
-            window.location.href = '/auth/login';
-            return;
-        }
-        
-        const contentType = response.headers.get('content-type');
-        if (contentType && contentType.includes('application/json')) {
-            const data = await response.json();
-            
-            if (response.ok) {
-                console.log('Transaction updated successfully');
-                window.location.href = `/portfolios/${portfolioId}`;
-            } else {
-                alert('Ошибка: ' + (data.error || data.message || 'Неизвестная ошибка'));
-            }
-        } else {
-            const text = await response.text();
-            console.error('Non-JSON response:', text.substring(0, 500));
-            alert('Ошибка сервера. Проверьте консоль.');
-        }
-    } catch (error) {
-        console.error('Fetch error:', error);
-        alert('Ошибка при сохранении: ' + error.message);
-    } finally {
-        submitBtn.innerHTML = originalText;
-        submitBtn.disabled = false;
-    }
+// Инициализация
+document.addEventListener('DOMContentLoaded', function() {
+    toggleTaxSection();
+    updateCalculations();
 });
-
-// Инициализация расчетов
-updateAllCalculations();
 </script>
 {% endblock %}

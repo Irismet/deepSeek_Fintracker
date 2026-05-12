@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+
+{% block title %}Мой профиль{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h5><i class="fas fa-user-circle"></i> {{ user.get_full_name() }}</h5>
+            </div>
+            <div class="card-body text-center">
+                <i class="fas fa-user-circle fa-5x text-muted mb-3"></i>
+                <p class="text-muted">{{ user.email }}</p>
+                <p>
+                    {% if user.is_admin %}
+                    <span class="badge bg-danger">Администратор</span>
+                    {% endif %}
+                </p>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-edit"></i> Редактирование профиля</h5>
+            </div>
+            <div class="card-body">
+                <form method="POST">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="first_name" class="form-label">Имя</label>
+                                <input type="text" class="form-control" id="first_name" name="first_name" value="{{ user.first_name or '' }}">
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="last_name" class="form-label">Фамилия</label>
+                                <input type="text" class="form-control" id="last_name" name="last_name" value="{{ user.last_name or '' }}">
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="email" class="form-label">E-mail</label>
+                                <input type="email" class="form-control" id="email" name="email" value="{{ user.email or '' }}">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="portfolio_type" class="form-label">Тип портфеля</label>
+                        <select class="form-select" id="portfolio_type" name="portfolio_type">
+                            <option value="speculative" {% if user.portfolio_type == 'speculative' %}selected{% endif %}>Спекулятивный</option>
+                            <option value="aggressive" {% if user.portfolio_type == 'aggressive' %}selected{% endif %}>Агрессивный</option>
+                            <option value="moderate" {% if user.portfolio_type == 'moderate' %}selected{% endif %}>Умеренный</option>
+                            <option value="conservative" {% if user.portfolio_type == 'conservative' %}selected{% endif %}>Консервативный</option>
+                            <option value="other" {% if user.portfolio_type == 'other' %}selected{% endif %}>Другое</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="notes" class="form-label">Заметки о себе</label>
+                        <textarea class="form-control" id="notes" name="notes" rows="3">{{ user.notes or '' }}</textarea>
+                    </div>
+                    
+                    <hr>
+                    <h6>Смена пароля</h6>
+                    <div class="mb-3">
+                        <label for="old_password" class="form-label">Старый пароль</label>
+                        <input type="password" class="form-control" id="old_password" name="old_password">
+                    </div>
+                    <div class="mb-3">
+                        <label for="new_password" class="form-label">Новый пароль</label>
+                        <input type="password" class="form-control" id="new_password" name="new_password">
+                        <div class="form-text">Оставьте пустым, если не хотите менять пароль</div>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary">Сохранить изменения</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

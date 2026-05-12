@@ -1,5 +1,6 @@
 # app/routes.py
 from decimal import Decimal
+from venv import logger
 
 from flask import jsonify, render_template, request, flash, redirect, make_response, url_for, session
 from flask_jwt_extended import get_jwt_identity, jwt_required
@@ -8,6 +9,7 @@ from app.models.broker import Broker
 from app.models.currency_rate import CurrencyRate
 from app.models.exchange import Exchange
 from app.models.price_cache import PriceCache
+from app.models.tax_event import TaxEvent
 from app.models.user import User
 from app.models.portfolio import Portfolio
 from app.models.asset import Asset
@@ -23,6 +25,8 @@ from datetime import datetime
 import logging
 # app/routes.py - добавьте в начало файла
 from flask import session
+
+from app.services.split_service import SplitService
 
 def set_current_portfolio(portfolio_id):
     """Сохраняет ID текущего портфеля в сессии"""
@@ -92,13 +96,17 @@ def register_routes(app):
         current_user = get_current_user()
         return render_template('index.html', current_user=current_user)
     
-    # Auth routes
-    @app.route('/auth/register', methods=['GET', 'POST'])
-    def register_html():
+    # app/routes.py - добавьте или обновите маршруты
+    @app.route('/auth/register-page', methods=['GET', 'POST'])  # изменено с '/auth/register'
+    def register_page():
+        """HTML страница регистрации"""
         if request.method == 'POST':
             email = request.form.get('email')
             password = request.form.get('password')
             confirm_password = request.form.get('confirm_password')
+            first_name = request.form.get('first_name')
+            last_name = request.form.get('last_name')
+            portfolio_type = request.form.get('portfolio_type', 'moderate')
             
             if not email or not password:
                 flash('Email и пароль обязательны для заполнения', 'danger')
@@ -116,71 +124,155 @@ def register_routes(app):
                 flash('Пользователь с таким email уже существует', 'danger')
                 return render_template('auth/register.html')
             
-            user = User(email=email)
+            user = User(
+                email=email,
+                first_name=first_name,
+                last_name=last_name,
+                portfolio_type=portfolio_type
+            )
             user.set_password(password)
+            
             db.session.add(user)
             db.session.commit()
             
             flash('Регистрация успешна! Теперь войдите в систему', 'success')
-            return redirect(url_for('login_html'))
+            return redirect(url_for('login_page'))
         
-        current_user = get_current_user()
-        return render_template('auth/register.html', current_user=current_user)
-    
-    @app.route('/auth/login', methods=['GET', 'POST'])
-    def login_html():
+        return render_template('auth/register.html')
+
+    @app.route('/auth/login-page', methods=['GET', 'POST'])  # изменено с '/auth/login'
+    def login_page():
+        """HTML страница входа"""
         if request.method == 'POST':
             email = request.form.get('email')
             password = request.form.get('password')
             
-            print(f"DEBUG: Login attempt - email: {email}")
-            
-            if not email or not password:
-                flash('Email и пароль обязательны для заполнения', 'danger')
-                return render_template('auth/login.html')
-            
             user = User.query.filter_by(email=email).first()
             
             if user and user.check_password(password):
+                if not user.is_active:
+                    flash('Аккаунт деактивирован. Обратитесь к администратору.', 'danger')
+                    return render_template('auth/login.html')
+                
                 from flask_jwt_extended import create_access_token
                 access_token = create_access_token(identity=str(user.id))
                 
-                print(f"DEBUG: Login success - user_id: {user.id}")
-                print(f"DEBUG: Token created: {access_token[:50]}...")
+                user.last_login = datetime.utcnow()
+                db.session.commit()
                 
-                # Создаем ответ с редиректом
                 response = make_response(redirect(url_for('portfolios_list')))
+                response.set_cookie('access_token', access_token, httponly=False, max_age=86400, path='/', samesite='Lax')
                 
-                # Устанавливаем cookie с правильными параметрами
-                response.set_cookie(
-                    'access_token', 
-                    access_token,
-                    httponly=False,  # Временно False для отладки, чтобы JS мог читать
-                    max_age=86400,   # 24 часа
-                    path='/',        # Доступно на всем сайте
-                    samesite='Lax',
-                    secure=False     # False для localhost
-                )
-                
-                # Дополнительно установим через session для проверки
-                session['user_id'] = user.id
-                
-                flash(f'Добро пожаловать, {user.email}!', 'success')
-                print("DEBUG: Redirecting to portfolios")
+                flash(f'Добро пожаловать, {user.get_full_name()}!', 'success')
                 return response
             else:
-                print(f"DEBUG: Login failed - user found: {user is not None}")
                 flash('Неверный email или пароль', 'danger')
         
-        current_user = get_current_user()
-        return render_template('auth/login.html', current_user=current_user)
-    
-    @app.route('/auth/logout')
-    def logout_html():
+        return render_template('auth/login.html')
+
+    @app.route('/auth/forgot-password-page', methods=['GET', 'POST'])  # изменено
+    def forgot_password_page():
+        """Запрос на восстановление пароля"""
+        if request.method == 'POST':
+            email = request.form.get('email')
+            user = User.query.filter_by(email=email).first()
+            
+            if user:
+                reset_token = user.generate_reset_token()
+                db.session.commit()
+                
+                from app.services.email_service import EmailService
+                success = EmailService.send_reset_password_email(
+                    email, 
+                    reset_token, 
+                    user.get_full_name()
+                )
+                
+                if success:
+                    flash('Инструкции по восстановлению пароля отправлены на ваш email', 'success')
+                else:
+                    flash('Не удалось отправить email. Попробуйте позже.', 'danger')
+            else:
+                flash('Если аккаунт существует, инструкции по восстановлению отправлены на email', 'success')
+            
+            return redirect(url_for('login_page'))
+        
+        return render_template('auth/forgot_password.html')
+
+    @app.route('/auth/reset-password-page/<token>', methods=['GET', 'POST'])  # изменено
+    def reset_password_page(token):
+        """Установка нового пароля"""
+        user = User.query.filter_by(reset_token=token).first()
+        
+        if not user or not user.verify_reset_token(token):
+            flash('Ссылка для восстановления пароля недействительна или истекла', 'danger')
+            return redirect(url_for('login_page'))
+        
+        if request.method == 'POST':
+            password = request.form.get('password')
+            confirm_password = request.form.get('confirm_password')
+            
+            if not password or len(password) < 6:
+                flash('Пароль должен содержать минимум 6 символов', 'danger')
+                return render_template('auth/reset_password.html', token=token)
+            
+            if password != confirm_password:
+                flash('Пароли не совпадают', 'danger')
+                return render_template('auth/reset_password.html', token=token)
+            
+            user.set_password(password)
+            user.clear_reset_token()
+            db.session.commit()
+            
+            flash('Пароль успешно изменен! Теперь вы можете войти.', 'success')
+            return redirect(url_for('login_page'))
+        
+        return render_template('auth/reset_password.html', token=token)
+
+    @app.route('/auth/logout-page')  # изменено с '/auth/logout'
+    def logout_page():
+        """Выход из системы"""
         response = make_response(redirect(url_for('home')))
         response.delete_cookie('access_token', path='/')
         flash('Вы вышли из системы', 'info')
         return response
+    
+    # app/routes.py - добавьте этот маршрут
+
+    @app.route('/profile', methods=['GET', 'POST'])
+    @login_required
+    def profile_html():
+        """Профиль пользователя"""
+        current_user = get_current_user()
+        
+        if request.method == 'POST':
+            # Обновляем личные данные
+            current_user.first_name = request.form.get('first_name')
+            current_user.last_name = request.form.get('last_name')
+            current_user.email = request.form.get('email')
+            current_user.portfolio_type = request.form.get('portfolio_type')
+            current_user.notes = request.form.get('notes')
+            
+            # Смена пароля
+            new_password = request.form.get('new_password')
+            if new_password and new_password.strip():
+                old_password = request.form.get('old_password')
+                if current_user.check_password(old_password):
+                    if len(new_password) >= 6:
+                        current_user.set_password(new_password)
+                        flash('Пароль успешно изменен!', 'success')
+                    else:
+                        flash('Новый пароль должен содержать минимум 6 символов', 'danger')
+                        return redirect(url_for('profile_html'))
+                else:
+                    flash('Неверный старый пароль', 'danger')
+                    return redirect(url_for('profile_html'))
+            
+            db.session.commit()
+            flash('Профиль обновлен!', 'success')
+            return redirect(url_for('profile_html'))
+        
+        return render_template('auth/profile.html', user=current_user, current_user=current_user)
     
     @app.route('/portfolios')
     @login_required
@@ -222,6 +314,7 @@ def register_routes(app):
         
         # Сохраняем текущий портфель в сессии
         set_current_portfolio(portfolio_id)
+        
         # Получаем валюту портфеля
         portfolio_currency = portfolio.currency
         
@@ -235,13 +328,17 @@ def register_routes(app):
         
         # Формируем данные для закрытых позиций
         closed_positions_data = []
+        total_realized_from_closed = 0
+        total_dividends_from_closed = 0
+        
         for closed in closed_positions:
             asset = closed.asset
             ticker = asset.ticker if asset else 'Unknown'
             name = asset.name if asset else 'Unknown'
             asset_currency = asset.currency if asset else 'USD'
             
-            # Конвертируем PnL в валюту портфеля
+            # Конвертируем в валюту портфеля
+            from app.services.currency_service import CurrencyService
             realized_pnl_converted = CurrencyService.convert(
                 closed.realized_pnl, 
                 asset_currency, 
@@ -249,13 +346,14 @@ def register_routes(app):
             )
             
             dividends_converted = CurrencyService.convert(
-            closed.total_dividends, 
-            asset_currency, 
-            portfolio_currency
+                closed.total_dividends, 
+                asset_currency, 
+                portfolio_currency
             )
             
-            total_pnl_converted = realized_pnl_converted + dividends_converted
-
+            total_realized_from_closed += float(realized_pnl_converted)
+            total_dividends_from_closed += float(dividends_converted)
+            
             closed_positions_data.append({
                 'asset_id': closed.asset_id,
                 'ticker': ticker,
@@ -266,7 +364,7 @@ def register_routes(app):
                 'avg_buy_currency': asset_currency,
                 'realized_pnl': float(realized_pnl_converted),
                 'dividends': float(dividends_converted),
-                'total_pnl': float(total_pnl_converted),
+                'total_pnl': float(realized_pnl_converted + dividends_converted),
                 'return_percentage': float(closed.return_percentage),
                 'total_return_percentage': float(closed.total_return_percentage),
                 'first_buy_date': closed.first_buy_date.strftime('%Y-%m-%d') if closed.first_buy_date else '-',
@@ -284,7 +382,6 @@ def register_routes(app):
                 if cache_entry:
                     last_price_update = cache_entry.last_update.strftime('%Y-%m-%d %H:%M:%S')
         
-        # В portfolios_detail_html добавьте:
         portfolio_data = {
             'id': portfolio.id,
             'name': portfolio.name,
@@ -292,10 +389,10 @@ def register_routes(app):
             'created_at': portfolio.created_at,
             'total_value': summary['total_value'],
             'total_cost': summary['total_cost'],
-            'total_dividends': summary['total_dividends'],
-            'total_realized_pnl': summary['total_realized_pnl'],
+            'total_dividends': summary.get('total_dividends', 0),
+            'total_realized_pnl': summary.get('total_realized_pnl', 0),
             'total_unrealized_pnl': summary['total_unrealized_pnl'],
-            'total_pnl': summary['total_pnl'],
+            'total_pnl': summary.get('total_pnl', summary['total_unrealized_pnl']),
             'total_return_pct': summary['total_return_pct'],
             'positions': summary['positions'],
             'closed_positions': closed_positions_data,
@@ -393,62 +490,144 @@ def register_routes(app):
         current_user = get_current_user()
         transaction = Transaction.query.get_or_404(transaction_id)
         
-        # Проверяем, что транзакция принадлежит пользователю
+        # Проверяем права доступа
         if transaction.portfolio.user_id != current_user.id:
             flash('Доступ запрещен!', 'danger')
             return redirect(url_for('portfolios_list'))
         
-        # Получаем список всех активов для выпадающего списка
+        # Получаем списки для выпадающих меню
         assets = Asset.query.order_by(Asset.ticker).all()
-        
-        # Получаем список брокеров
         brokers = Broker.query.filter_by(is_active=True).order_by(Broker.name).all()
-        
-        # Получаем список бирж
         exchanges = Exchange.query.filter_by(is_active=True).order_by(Exchange.name).all()
         
-        if request.method == 'POST':
-            # Обновляем транзакцию
-            transaction.tx_type = request.form.get('tx_type')
-            transaction.quantity = float(request.form.get('quantity'))
-            transaction.price = float(request.form.get('price'))
-            transaction.fee = float(request.form.get('fee', 0))
-            transaction.tx_currency = request.form.get('tx_currency')
-            transaction.tx_date = datetime.strptime(request.form.get('tx_date'), '%Y-%m-%dT%H:%M')
-            transaction.broker_id = request.form.get('broker_id') or None
-            transaction.notes = request.form.get('notes')
-            
-            # Обновляем биржу
-            exchange_name = request.form.get('exchange')
-            if exchange_name:
-                exchange = Exchange.query.filter_by(name=exchange_name).first()
-                transaction.exchange_id = exchange.id if exchange else None
-            else:
-                transaction.exchange_id = None
-            
-            # Обновляем актив
-            asset_id = request.form.get('asset_id')
-            if asset_id:
-                transaction.asset_id = int(asset_id)
-            else:
-                transaction.asset_id = None
-            
-            db.session.commit()
-            
-            # Пересчитываем позиции портфеля
-            from app.services.position_service import PositionService
-            PositionService.recalc_portfolio_positions(transaction.portfolio_id)
-            
-            flash('Транзакция успешно обновлена!', 'success')
-            return redirect(url_for('portfolios_detail_html', portfolio_id=transaction.portfolio_id))
+        # Получаем налоговые события для этой транзакции (если есть)
+        tax_events = TaxEvent.query.filter_by(transaction_id=transaction_id).all()
+        us_tax = 0
+        local_tax = 0
         
-        # Для GET запроса - передаем все необходимые данные в шаблон
+        for tax in tax_events:
+            if tax.tax_type == 'withholding_us':
+                us_tax = float(tax.tax_amount)
+            elif tax.tax_type == 'local_dividend':
+                local_tax = float(tax.tax_amount)
+        
+        if request.method == 'POST':
+            try:
+                # Обновляем основные поля транзакции
+                transaction.tx_type = request.form.get('tx_type')
+                transaction.quantity = Decimal(str(request.form.get('quantity')))
+                transaction.price = Decimal(str(request.form.get('price')))
+                transaction.fee = Decimal(str(request.form.get('fee', 0)))
+                transaction.tx_currency = request.form.get('tx_currency')
+                transaction.tx_date = datetime.strptime(request.form.get('tx_date'), '%Y-%m-%dT%H:%M')
+                transaction.broker_id = request.form.get('broker_id') or None
+                transaction.notes = request.form.get('notes')
+                
+                # Обновляем биржу
+                exchange_name = request.form.get('exchange')
+                if exchange_name:
+                    exchange = Exchange.query.filter_by(name=exchange_name).first()
+                    transaction.exchange_id = exchange.id if exchange else None
+                else:
+                    transaction.exchange_id = None
+                
+                # Обновляем актив
+                asset_id = request.form.get('asset_id')
+                if asset_id:
+                    transaction.asset_id = int(asset_id)
+                else:
+                    transaction.asset_id = None
+                
+                db.session.commit()
+                
+                # Если это дивиденды - обновляем налоговые события
+                if transaction.tx_type == 'dividend' and transaction.asset_id:
+                    # Удаляем старые налоговые события
+                    TaxEvent.query.filter_by(transaction_id=transaction_id).delete()
+                    
+                    # Рассчитываем налоги заново
+                    gross_amount = transaction.quantity * transaction.price
+                    asset = transaction.asset
+                    exchange_name = exchange.name if exchange else (asset.exchange.name if asset.exchange else '')
+                    isin = asset.isin or ''
+                    
+                    # Определяем ставки налогов
+                    us_tax_rate = 0
+                    local_tax_rate = 0
+                    
+                    if exchange_name in ['KASE', 'AIX']:
+                        if asset.asset_type in ['etf', 'stock']:
+                            if isin.startswith('KZ'):
+                                us_tax_rate = 0
+                                local_tax_rate = 5
+                            elif isin.startswith('US'):
+                                us_tax_rate = 15
+                                local_tax_rate = 10
+                        elif asset.asset_type in ['bond']:
+                                us_tax_rate = 0
+                                local_tax_rate = 0
+                    else:
+                        if isin.startswith('US'):
+                            us_tax_rate = 15
+                            local_tax_rate = 10
+                        else:
+                            us_tax_rate = 15
+                            local_tax_rate = 10
+                    
+                    # Создаем налоговые события
+                    if us_tax_rate > 0:
+                        us_tax_amount = gross_amount * Decimal(str(us_tax_rate)) / 100
+                        tax_event_us = TaxEvent(
+                            portfolio_id=transaction.portfolio_id,
+                            asset_id=transaction.asset_id,
+                            transaction_id=transaction.id,
+                            tax_type='withholding_us',
+                            tax_rate=us_tax_rate,
+                            taxable_amount=gross_amount,
+                            tax_amount=us_tax_amount,
+                            currency=transaction.tx_currency,
+                            tax_date=transaction.tx_date,
+                            notes=f'Налог у источника в США ({us_tax_rate}%) на дивиденды по {asset.ticker}'
+                        )
+                        db.session.add(tax_event_us)
+                    
+                    if local_tax_rate > 0:
+                        local_tax_amount = gross_amount * Decimal(str(local_tax_rate)) / 100
+                        tax_event_local = TaxEvent(
+                            portfolio_id=transaction.portfolio_id,
+                            asset_id=transaction.asset_id,
+                            transaction_id=transaction.id,
+                            tax_type='local_dividend',
+                            tax_rate=local_tax_rate,
+                            taxable_amount=gross_amount,
+                            tax_amount=local_tax_amount,
+                            currency=transaction.tx_currency,
+                            tax_date=transaction.tx_date,
+                            notes=f'Местный налог ({local_tax_rate}%) на дивиденды по {asset.ticker}'
+                        )
+                        db.session.add(tax_event_local)
+                    
+                    db.session.commit()
+                
+                # Пересчитываем позиции портфеля
+                from app.services.position_service import PositionService
+                PositionService.recalc_portfolio_positions(transaction.portfolio_id)
+                
+                flash('Транзакция успешно обновлена!', 'success')
+                return redirect(url_for('portfolios_detail_html', portfolio_id=transaction.portfolio_id))
+                
+            except Exception as e:
+                db.session.rollback()
+                flash(f'Ошибка при сохранении: {str(e)}', 'danger')
+        
         return render_template('transactions/edit.html', 
                             transaction=transaction,
                             portfolio_id=transaction.portfolio_id,
                             assets=assets,
                             brokers=brokers,
                             exchanges=exchanges,
+                            us_tax=us_tax,
+                            local_tax=local_tax,
                             current_user=current_user)
 
     @app.route('/transactions/<int:transaction_id>/delete', methods=['POST'])
@@ -502,7 +681,7 @@ def register_routes(app):
             name = request.form.get('name')
             asset_type = request.form.get('asset_type')
             currency = request.form.get('currency')
-            
+            isin = request.form.get('isin') or None
             # Поля для облигаций
             face_value = request.form.get('face_value') or None
             coupon_rate = request.form.get('coupon_rate') or None
@@ -525,6 +704,7 @@ def register_routes(app):
                 name=name,
                 asset_type=asset_type,
                 currency=currency,
+                isin=isin,
                 face_value=face_value,
                 coupon_rate=coupon_rate,
                 maturity_date=maturity_date
@@ -631,6 +811,8 @@ def register_routes(app):
         flash('Актив успешно удален!', 'success')
         return redirect(url_for('assets_list'))
     
+
+
     # Analytics routes
     @app.route('/analytics')
     @login_required
@@ -775,3 +957,40 @@ def register_routes(app):
         
         CurrencyService.clear_cache()
         return jsonify({'message': 'Currency rates cache cleared'})
+    
+
+    # Добавьте в app/routes.py
+
+    @app.route('/admin/splits/apply', methods=['GET', 'POST'])
+    @login_required
+    def apply_split_admin():
+        """Применение сплита к активу"""
+        current_user = get_current_user()
+        if current_user.email not in ['iriska_4@bk.ru']:
+            flash('Доступ запрещен', 'danger')
+            return redirect(url_for('portfolios_list'))
+        
+        if request.method == 'POST':
+            asset_id = request.form.get('asset_id')
+            old_quantity = Decimal(request.form.get('old_quantity'))
+            new_quantity = Decimal(request.form.get('new_quantity'))
+            split_date = datetime.strptime(request.form.get('split_date'), '%Y-%m-%d').date()
+            split_type = request.form.get('split_type', 'split')
+            
+            try:
+                result = SplitService.apply_split(asset_id, old_quantity, new_quantity, split_date, split_type)
+                flash(f"Сплит успешно применен: {result['ticker']} x{result['ratio']}", 'success')
+            except Exception as e:
+                flash(f"Ошибка: {e}", 'danger')
+            
+            return redirect(url_for('apply_split_admin'))
+        
+        assets = Asset.query.filter(Asset.asset_type.in_(['stock', 'etf'])).all()
+        return render_template('admin/apply_split.html', assets=assets, current_user=current_user)
+
+    @app.route('/admin/splits/history/<int:asset_id>')
+    @login_required
+    def split_history(asset_id):
+        """История сплитов актива"""
+        splits = SplitService.get_split_history(asset_id)
+        return jsonify(splits)

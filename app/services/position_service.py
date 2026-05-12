@@ -99,9 +99,9 @@ class PositionService:
         
         # Рассчитываем общие показатели
         total_quantity = sum(b.quantity for b in buys)
-        total_buy_cost = sum(b.quantity * b.price + b.fee for b in buys)
+        total_buy_cost = sum(Decimal(b.quantity) * Decimal(b.price) + Decimal(b.fee) for b in buys)
         total_sold_quantity = sum(s.quantity for s in sells)
-        total_dividends = sum(d.quantity * d.price - d.fee for d in dividends)
+        total_dividends = sum(Decimal(d.quantity) * Decimal(d.price) - Decimal(d.fee) for d in dividends)
         
         # Если ничего не продано - удаляем закрытую позицию
         if total_sold_quantity == 0:
@@ -144,11 +144,11 @@ class PositionService:
                 sell_from_this_buy = min(remaining_quantity, sell_quantity)
                 
                 # Рассчитываем cost basis для этой части
-                cost_basis_portion = (sell_from_this_buy / buy_quantity) * buy_cost
-                sell_revenue_portion = sell_from_this_buy * sell_price - (sell_fee * (sell_from_this_buy / sell_quantity))
+                cost_basis_portion = (Decimal(sell_from_this_buy) / Decimal(buy_quantity)) * Decimal(buy_cost)
+                sell_revenue_portion = Decimal(sell_from_this_buy) * Decimal(sell_price) - (Decimal(sell_fee) * (Decimal(sell_from_this_buy) / Decimal(sell_quantity)))
                 
-                total_cost_basis += cost_basis_portion
-                total_sell_revenue += sell_revenue_portion
+                total_cost_basis += Decimal(cost_basis_portion)
+                total_sell_revenue += Decimal(sell_revenue_portion)
                 
                 # Обновляем остатки
                 remaining_quantity -= sell_from_this_buy
