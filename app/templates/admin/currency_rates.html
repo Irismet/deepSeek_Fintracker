@@ -1,0 +1,240 @@
+{% extends "base.html" %}
+
+{% block title %}Управление курсами валют{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="fas fa-exchange-alt"></i> Управление курсами валют</h2>
+    <div>
+        <button onclick="updateCurrencyRates()" class="btn btn-primary" id="updateBtn">
+            <i class="fas fa-sync-alt"></i> Обновить курсы
+        </button>
+        <button onclick="clearCurrencyCache()" class="btn btn-warning" id="clearBtn">
+            <i class="fas fa-trash-alt"></i> Очистить кэш
+        </button>
+        <a href="{{ url_for('portfolios_list') }}" class="btn btn-secondary">
+            <i class="fas fa-arrow-left"></i> Назад
+        </a>
+    </div>
+</div>
+
+<!-- Статистика -->
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="card text-white bg-primary">
+            <div class="card-body">
+                <h5 class="card-title"><i class="fas fa-database"></i> Всего записей</h5>
+                <h2 class="card-text">{{ stats.total_rates }}</h2>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-white bg-success">
+            <div class="card-body">
+                <h5 class="card-title"><i class="fas fa-code-branch"></i> Уникальных пар</h5>
+                <h2 class="card-text">{{ unique_pairs }}</h2>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-white bg-info">
+            <div class="card-body">
+                <h5 class="card-title"><i class="fas fa-calendar-alt"></i> Период</h5>
+                <p class="card-text mb-0">
+                    {% if oldest_date and newest_date %}
+                    {{ oldest_date.strftime('%d.%m.%Y') }} - {{ newest_date.strftime('%d.%m.%Y') }}
+                    {% else %}
+                    Нет данных
+                    {% endif %}
+                </p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-white bg-secondary">
+            <div class="card-body">
+                <h5 class="card-title"><i class="fas fa-clock"></i> Последнее обновление</h5>
+                <p class="card-text mb-0">
+                    {% if last_update_time %}
+                    {{ last_update_time.strftime('%d.%m.%Y %H:%M:%S') }}
+                    {% else %}
+                    Нет данных
+                    {% endif %}
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Статистика по валютным парам -->
+<div class="card mb-4">
+    <div class="card-header bg-info text-white">
+        <h5><i class="fas fa-chart-line"></i> Статистика по валютным парам</h5>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-hover">
+                <thead class="table-dark">
+                    <tr>
+                        <th>Валютная пара</th>
+                        <th>Последняя дата</th>
+                        <th>Последний курс</th>
+                        <th>Источник</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for pair in stats.pairs_stats %}
+                    <tr>
+                        <td><strong>{{ pair.pair }}</strong></td>
+                        <td>{{ pair.last_date }}</td>
+                        <td>{{ "%.6f"|format(pair.last_rate) }}</td>
+                        <td><span class="badge bg-success">exchange_rate_api</span></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Последние записи -->
+<div class="card">
+    <div class="card-header bg-primary text-white">
+        <h5><i class="fas fa-history"></i> Последние 50 записей</h5>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+            <table class="table table-sm table-striped">
+                <thead class="table-light">
+                    <tr>
+                        <th>Дата</th>
+                        <th>Базовая валюта</th>
+                        <th>Целевая валюта</th>
+                        <th>Курс</th>
+                        <th>Источник</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for rate in last_rates %}
+                    <tr>
+                        <td>{{ rate.rate_date.strftime('%d.%m.%Y') }}</td>
+                        <td><span class="badge bg-secondary">{{ rate.base_currency }}</span></td>
+                        <td><span class="badge bg-secondary">{{ rate.target_currency }}</span></td>
+                        <td>
+                            {% if rate.base_currency == 'USD' and rate.target_currency == 'KZT' %}
+                            <strong>{{ "%.2f"|format(rate.rate|float) }}</strong>
+                            {% else %}
+                            {{ "%.6f"|format(rate.rate|float) }}
+                            {% endif %}
+                        </td>
+                        <td><span class="badge bg-info">{{ rate.source or 'API' }}</span></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        
+        {% if last_rates|length == 0 %}
+        <div class="alert alert-warning">
+            <i class="fas fa-exclamation-triangle"></i> 
+            В базе данных пока нет курсов валют. Нажмите "Обновить курсы" для загрузки данных.
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Информация об API -->
+<div class="card mt-4">
+    <div class="card-header bg-dark text-white">
+        <h5><i class="fas fa-info-circle"></i> Информация об источнике данных</h5>
+    </div>
+    <div class="card-body">
+        <p><strong>🌐 Источник:</strong> ExchangeRate-API (https://exchangerate-api.com)</p>
+        <p><strong>📊 Обновление:</strong> Автоматически раз в 24 часа</p>
+        <p><strong>💱 Доступные валюты:</strong> USD, EUR, RUB, GBP, CNY, KZT</p>
+        <p><strong>🔄 Формула конвертации:</strong> сумма × курс = результат</p>
+        <p class="text-muted mb-0">
+            <i class="fas fa-info-circle"></i> 
+            Курсы обновляются автоматически в фоновом режиме. Вы также можете обновить их вручную кнопкой выше.
+        </p>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Функция обновления курсов валют
+async function updateCurrencyRates() {
+    if (!confirm('Обновить курсы валют? Будут загружены актуальные курсы за сегодня.')) {
+        return;
+    }
+    
+    const btn = document.getElementById('updateBtn');
+    const originalHtml = btn.innerHTML;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Обновление...';
+    btn.disabled = true;
+    
+    try {
+        const response = await fetch('/admin/currency/update', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok && data.success) {
+            alert(`✅ ${data.message}`);
+            window.location.reload();
+        } else {
+            alert('❌ Ошибка: ' + (data.error || 'Неизвестная ошибка'));
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        alert('❌ Ошибка при обновлении курсов: ' + error.message);
+    } finally {
+        btn.innerHTML = originalHtml;
+        btn.disabled = false;
+    }
+}
+
+// Функция очистки кэша
+async function clearCurrencyCache() {
+    if (!confirm('Очистить кэш курсов валют? Это может замедлить следующие запросы.')) {
+        return;
+    }
+    
+    const btn = document.getElementById('clearBtn');
+    const originalHtml = btn.innerHTML;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Очистка...';
+    btn.disabled = true;
+    
+    try {
+        const response = await fetch('/admin/currency/clear', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok && data.success) {
+            alert(`✅ ${data.message}`);
+        } else {
+            alert('❌ Ошибка: ' + (data.error || 'Неизвестная ошибка'));
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        alert('❌ Ошибка при очистке кэша: ' + error.message);
+    } finally {
+        btn.innerHTML = originalHtml;
+        btn.disabled = false;
+    }
+}
+
+// Автоматическое обновление страницы каждые 5 минут (опционально)
+// setTimeout(() => { window.location.reload(); }, 300000);
+</script>
+{% endblock %}

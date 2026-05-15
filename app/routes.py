@@ -4,6 +4,7 @@ from venv import logger
 
 from flask import jsonify, render_template, request, flash, redirect, make_response, url_for, session
 from flask_jwt_extended import get_jwt_identity, jwt_required
+from app.decorators import admin_required
 from app.extensions import db
 from app.models.broker import Broker
 from app.models.currency_rate import CurrencyRate
@@ -83,7 +84,7 @@ def login_required(f):
         if not current_user:
             print("DEBUG: login_required failed - no user")
             flash('Пожалуйста, войдите в систему', 'warning')
-            return redirect(url_for('login_html'))
+            return redirect(url_for('profile_html'))
         print(f"DEBUG: login_required success - user: {current_user.email}")
         return f(*args, **kwargs)
     return decorated_function
@@ -994,3 +995,109 @@ def register_routes(app):
         """История сплитов актива"""
         splits = SplitService.get_split_history(asset_id)
         return jsonify(splits)
+    
+    # app/routes.py - добавьте эти маршруты в конец файла
+
+# ========== АДМИН-ПАНЕЛЬ УПРАВЛЕНИЯ КУРСАМИ ВАЛЮТ ==========
+
+    @app.route('/admin/currency')
+    @login_required
+    @admin_required
+    def admin_currency_panel():
+        """Админ-панель управления курсами валют (HTML страница)"""
+        from app.services.currency_rate_service import CurrencyRateService
+        from app.models.currency_rate import CurrencyRate
+        from datetime import timedelta
+        
+        current_user = get_current_user()
+        
+        # Получаем статистику
+        stats = CurrencyRateService.get_stats()
+        
+        # Получаем последние 50 записей
+        last_rates = CurrencyRate.query.order_by(CurrencyRate.rate_date.desc()).limit(50).all()
+        
+        # Получаем информацию о последнем обновлении
+        last_update = CurrencyRate.query.order_by(CurrencyRate.updated_at.desc()).first()
+        last_update_time = last_update.updated_at if last_update else None
+        
+        # Считаем количество уникальных валютных пар
+        unique_pairs = CurrencyRate.query.distinct(
+            CurrencyRate.base_currency, 
+            CurrencyRate.target_currency
+        ).count()
+        
+        # Получаем дату самой старой записи
+        oldest_rate = CurrencyRate.query.order_by(CurrencyRate.rate_date.asc()).first()
+        oldest_date = oldest_rate.rate_date if oldest_rate else None
+        
+        # Получаем дату самой новой записи
+        newest_rate = CurrencyRate.query.order_by(CurrencyRate.rate_date.desc()).first()
+        newest_date = newest_rate.rate_date if newest_rate else None
+        
+        return render_template('admin/currency_rates.html',
+                            stats=stats,
+                            last_rates=last_rates,
+                            last_update_time=last_update_time,
+                            unique_pairs=unique_pairs,
+                            oldest_date=oldest_date,
+                            newest_date=newest_date,
+                            current_user=current_user)
+
+    @app.route('/admin/currency/update', methods=['POST'])
+    @login_required
+    @admin_required
+    def admin_update_currency():
+        """API для принудительного обновления курсов валют"""
+        from app.services.currency_rate_service import CurrencyRateService
+        
+        try:
+            updated = CurrencyRateService.update_missing_rates()
+            
+            if updated > 0:
+                return jsonify({
+                    'success': True,
+                    'message': f'✅ Успешно обновлено {updated} курсов валют',
+                    'updated': updated
+                }), 200
+            else:
+                return jsonify({
+                    'success': True,
+                    'message': 'ℹ️ Все курсы валют уже актуальны',
+                    'updated': 0
+                }), 200
+        except Exception as e:
+            logger.error(f"Currency update error: {e}")
+            return jsonify({
+                'success': False,
+                'error': str(e)
+            }), 500
+
+    @app.route('/admin/currency/stats')
+    @login_required
+    @admin_required
+    def admin_currency_stats_api():
+        """API для получения статистики по курсам валют"""
+        from app.services.currency_rate_service import CurrencyRateService
+        
+        stats = CurrencyRateService.get_stats()
+        return jsonify(stats)
+
+    @app.route('/admin/currency/clear', methods=['POST'])
+    @login_required
+    @admin_required
+    def admin_clear_currency_cache():
+        """Очистка кэша курсов валют"""
+        from app.services.currency_service import CurrencyService
+        
+        try:
+            CurrencyService.clear_cache()
+            return jsonify({
+                'success': True,
+                'message': '✅ Кэш курсов валют очищен'
+            }), 200
+        except Exception as e:
+            return jsonify({
+                'success': False,
+                'error': str(e)
+            }), 500

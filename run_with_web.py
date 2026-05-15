@@ -5,6 +5,7 @@ from flask import flash, jsonify, make_response, redirect, request
 from redis.background import BackgroundScheduler
 
 from app import create_app
+from app.decorators import admin_required
 from app.routes import login_required, register_routes
 from app.services import price_cache_service
 from app.services.price_cache_service import price_cache_service
@@ -319,6 +320,94 @@ def debug_kase(ticker):
             'source': 'KASE'
         }), 404
 
+# run_with_web.py - добавьте эти маршруты
+
+@app.route('/admin/currency/update', methods=['POST'])
+@login_required
+@admin_required
+def admin_update_currency_rates():
+    """Принудительное обновление курсов валют"""
+    from app.services.currency_rate_service import CurrencyRateService
+    
+    try:
+        updated = CurrencyRateService.update_missing_rates()
+        return jsonify({
+            'success': True,
+            'message': f'Обновлено {updated} курсов валют',
+            'updated': updated
+        }), 200
+    except Exception as e:
+        logger.error(f"Currency update error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/admin/currency/stats')
+@login_required
+@admin_required
+def admin_currency_stats():
+    """Статистика по курсам валют"""
+    from app.services.currency_rate_service import CurrencyRateService
+    
+    stats = CurrencyRateService.get_stats()
+    return jsonify(stats)
+
+@app.route('/admin/currency/rates')
+@login_required
+@admin_required
+def admin_currency_rates():
+    """Страница управления курсами валют"""
+    from app.services.currency_rate_service import CurrencyRateService
+    from app.models.currency_rate import CurrencyRate
+    
+    stats = CurrencyRateService.get_stats()
+    last_rates = CurrencyRate.query.order_by(CurrencyRate.rate_date.desc()).limit(50).all()
+    
+    return render_template('admin/currency_rates.html', 
+                         stats=stats,
+                         last_rates=last_rates,
+                         current_user=get_current_user())
+
+
+# run_with_web.py - добавьте в функцию background_price_updater или создайте отдельную
+
+def background_currency_updater():
+    """Фоновый поток для обновления курсов валют"""
+    from app.services.currency_rate_service import CurrencyRateService
+    import time
+    
+    with app.app_context():
+        while True:
+            try:
+                print("\n" + "="*50)
+                print(f"🔄 Updating currency rates at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                
+                updated = CurrencyRateService.update_missing_rates()
+                
+                if updated > 0:
+                    print(f"✅ Updated {updated} currency rates")
+                else:
+                    print("ℹ️ No new currency rates needed")
+                
+                # Получаем статистику
+                stats = CurrencyRateService.get_stats()
+                print(f"📊 Total rates in DB: {stats['total_rates']}")
+                
+            except Exception as e:
+                print(f"❌ Currency update error: {e}")
+                import traceback
+                traceback.print_exc()
+            
+            # Ждем 24 часа до следующего обновления
+            print("⏰ Next currency update in 24 hours...")
+            time.sleep(86400)  # 24 часа
+
+# Запускаем фоновое обновление курсов при старте приложения
+def start_currency_updater():
+    thread = threading.Thread(target=background_currency_updater, daemon=True)
+    thread.start()
+    print("🚀 Currency rate updater started (updates every 24 hours)")
+
+# Вызовите после старта приложения
+threading.Timer(30, start_currency_updater).start()  # Задержка 30 секунд
 
 if __name__ == '__main__':
     print("=" * 70)

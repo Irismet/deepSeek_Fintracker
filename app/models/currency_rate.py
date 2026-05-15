@@ -1,16 +1,16 @@
 # app/models/currency_rate.py
-from app import db
+from app.extensions import db
 from datetime import date, datetime
 
 class CurrencyRate(db.Model):
     __tablename__ = 'currency_rates'
     
     id = db.Column(db.BigInteger, primary_key=True)
-    base_currency = db.Column(db.String(3), nullable=False)  # USD, EUR, RUB
-    target_currency = db.Column(db.String(3), nullable=False)  # USD, EUR, RUB
-    rate = db.Column(db.Numeric(20, 8), nullable=False)  # Курс обмена
+    base_currency = db.Column(db.String(3), nullable=False)
+    target_currency = db.Column(db.String(3), nullable=False)
+    rate = db.Column(db.Numeric(20, 8), nullable=False)
     rate_date = db.Column(db.Date, nullable=False, default=date.today)
-    source = db.Column(db.String(50), nullable=True)  # Источник данных (CB, CBRF, etc.)
+    source = db.Column(db.String(50), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     

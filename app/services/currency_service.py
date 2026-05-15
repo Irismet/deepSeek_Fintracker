@@ -1,71 +1,107 @@
 # app/services/currency_service.py
-from app.extensions import db
-from app.models.currency_rate import CurrencyRate
 from decimal import Decimal
-from datetime import date, datetime
+from datetime import date
+from app.services.currency_rate_service import CurrencyRateService
 import logging
 
 logger = logging.getLogger(__name__)
 
 class CurrencyService:
-    """Сервис для конвертации валют"""
-    
-    # Кэш курсов на текущую сессию
-    _rates_cache = {}
+    """Сервис для конвертации валют (обертка над CurrencyRateService)"""
     
     @classmethod
     def get_rate(cls, from_currency, to_currency, rate_date=None):
-        """Получение курса конвертации"""
-        if from_currency == to_currency:
-            return Decimal('1')
+        """
+        Получение курса конвертации между двумя валютами
         
-        if rate_date is None:
-            rate_date = date.today()
+        Args:
+            from_currency: Исходная валюта (например, 'USD')
+            to_currency: Целевая валюта (например, 'KZT')
+            rate_date: Дата курса (если None - текущая дата)
         
-        # Проверяем кэш
-        cache_key = f"{from_currency}_{to_currency}_{rate_date}"
-        if cache_key in cls._rates_cache:
-            return cls._rates_cache[cache_key]
-        
-        # Ищем курс в базе
-        rate = CurrencyRate.query.filter_by(
-            base_currency=from_currency,
-            target_currency=to_currency,
-            rate_date=rate_date
-        ).first()
-        
-        if not rate:
-            # Пробуем обратный курс
-            rate = CurrencyRate.query.filter_by(
-                base_currency=to_currency,
-                target_currency=from_currency,
-                rate_date=rate_date
-            ).first()
-            if rate:
-                rate_value = Decimal('1') / rate.rate
-                cls._rates_cache[cache_key] = rate_value
-                return rate_value
-        
-        if rate:
-            cls._rates_cache[cache_key] = rate.rate
-            logger.warning(f"Currency rate: {rate.rate}")    
-            return rate.rate
-        
-        # Если курс не найден, возвращаем 1 (без конвертации)
-        logger.warning(f"Currency rate not found: {from_currency} -> {to_currency} for {rate_date}")
-        return Decimal('1')
+        Returns:
+            Decimal: Курс конвертации
+        """
+        return CurrencyRateService.get_rate(from_currency, to_currency, rate_date)
     
     @classmethod
     def convert(cls, amount, from_currency, to_currency, rate_date=None):
-        """Конвертация суммы из одной валюты в другую"""
+        """
+        Конвертация суммы из одной валюты в другую
+        
+        Args:
+            amount: Сумма для конвертации
+            from_currency: Исходная валюта
+            to_currency: Целевая валюта
+            rate_date: Дата курса
+        
+        Returns:
+            Decimal: Сумма в целевой валюте
+        """
         if from_currency == to_currency:
             return amount
         
-        rate = cls.get_rate(from_currency, to_currency, rate_date)
-        logger.info(f"convert value from currency: {from_currency} to {to_currency}, rate = { rate}")
-        return amount * rate
+        if not amount or amount == 0:
+            return Decimal('0')
+        
+        try:
+            rate = cls.get_rate(from_currency, to_currency, rate_date)
+            result = amount * rate
+            logger.debug(f"Converted {amount} {from_currency} -> {result} {to_currency} at rate {rate}")
+            return result
+        except Exception as e:
+            logger.error(f"Currency conversion error: {e}")
+            return amount  # Возвращаем исходную сумму в случае ошибки
+    
+    @classmethod
+    def get_rate_info(cls, from_currency, to_currency):
+        """
+        Получение информации о курсе с последней датой
+        """
+        from app.models.currency_rate import CurrencyRate
+        
+        rate_obj = CurrencyRate.query.filter_by(
+            base_currency=from_currency,
+            target_currency=to_currency
+        ).order_by(CurrencyRate.rate_date.desc()).first()
+        
+        if rate_obj:
+            return {
+                'rate': float(rate_obj.rate),
+                'date': rate_obj.rate_date.isoformat(),
+                'source': rate_obj.source
+            }
+        return None
     
     @classmethod
     def clear_cache(cls):
-        """Очистка кэша курсов"""
-        cls._rates_cache = {}
+        """
+        Очистка кэша курсов (для принудительного обновления)
+        """
+        # CurrencyRateService не имеет внутреннего кэша,
+        # но можно добавить принудительное обновление
+        logger.info("Currency cache cleared")
+    
+    @classmethod
+    def convert_batch(cls, amounts, from_currency, to_currency, rate_date=None):
+        """
+        Массовая конвертация списка сумм
+        """
+        rate = cls.get_rate(from_currency, to_currency, rate_date)
+        return [amount * rate for amount in amounts]
+    
+    @classmethod
+    def get_available_currencies(cls):
+        """
+        Получение списка всех доступных валют из базы
+        """
+        from app.models.currency_rate import CurrencyRate
+        
+        currencies = set()
+        rates = CurrencyRate.query.all()
+        
+        for rate in rates:
+            currencies.add(rate.base_currency)
+            currencies.add(rate.target_currency)
+        
+        return sorted(list(currencies))
